@@ -1,0 +1,258 @@
+"use client"
+
+import type React from "react"
+import { useState, useEffect } from "react"
+import { Navigation } from "@/components/navigation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { supabase, type Vendor } from "@/lib/supabase"
+import { Plus, Edit, Trash2, Phone, Mail, MapPin } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+
+export default function VendorsPage() {
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
+  const { toast } = useToast()
+
+  const [formData, setFormData] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+  })
+
+  useEffect(() => {
+    fetchVendors()
+  }, [])
+
+  const fetchVendors = async () => {
+    const { data, error } = await supabase.from("vendors").select("*").order("created_at", { ascending: false })
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los proveedores",
+        variant: "destructive",
+      })
+    } else {
+      setVendors(data || [])
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    let error
+    if (editingVendor) {
+      const { error: updateError } = await supabase.from("vendors").update(formData).eq("id", editingVendor.id)
+      error = updateError
+    } else {
+      const { error: insertError } = await supabase.from("vendors").insert([formData])
+      error = insertError
+    }
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      })
+    } else {
+      toast({
+        title: "Éxito",
+        description: `Proveedor ${editingVendor ? "actualizado" : "creado"} correctamente`,
+      })
+      setIsDialogOpen(false)
+      resetForm()
+      fetchVendors()
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (confirm("¿Estás seguro de que quieres eliminar este proveedor?")) {
+      const { error } = await supabase.from("vendors").delete().eq("id", id)
+
+      if (error) {
+        toast({
+          title: "Error",
+          description: "No se pudo eliminar el proveedor",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "Éxito",
+          description: "Proveedor eliminado correctamente",
+        })
+        fetchVendors()
+      }
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+    })
+    setEditingVendor(null)
+  }
+
+  const openEditDialog = (vendor: Vendor) => {
+    setEditingVendor(vendor)
+    setFormData({
+      name: vendor.name,
+      phone: vendor.phone,
+      email: vendor.email || "",
+      address: vendor.address || "",
+    })
+    setIsDialogOpen(true)
+  }
+
+  const filteredVendors = vendors.filter(
+    (vendor) =>
+      vendor.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vendor.phone.includes(searchTerm) ||
+      (vendor.email && vendor.email.toLowerCase().includes(searchTerm.toLowerCase())),
+  )
+
+  return (
+    <div className="flex">
+      <Navigation />
+      <main className="flex-1 p-8">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Proveedores</h1>
+            <p className="text-gray-600">Gestiona la información de tus proveedores</p>
+          </div>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={resetForm}>
+                <Plus className="w-4 h-4 mr-2" />
+                Nuevo Proveedor
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{editingVendor ? "Editar Proveedor" : "Nuevo Proveedor"}</DialogTitle>
+                <DialogDescription>
+                  {editingVendor ? "Modifica los datos del proveedor" : "Completa la información del nuevo proveedor"}
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit}>
+                <div className="grid grid-cols-2 gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Nombre *</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Teléfono *</Label>
+                    <Input
+                      id="phone"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="address">Dirección</Label>
+                    <Textarea
+                      id="address"
+                      value={formData.address}
+                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit">{editingVendor ? "Actualizar" : "Crear"} Proveedor</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Barra de búsqueda */}
+        <div className="mb-6">
+          <Input
+            placeholder="Buscar proveedores por nombre, teléfono o email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="max-w-md"
+          />
+        </div>
+
+        {/* Lista de proveedores */}
+        <div className="grid gap-4">
+          {filteredVendors.map((vendor) => (
+            <Card key={vendor.id}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold mb-2">{vendor.name}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-gray-500" />
+                        <span>{vendor.phone}</span>
+                      </div>
+                      {vendor.email && (
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-gray-500" />
+                          <span>{vendor.email}</span>
+                        </div>
+                      )}
+                      {vendor.address && (
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-gray-500" />
+                          <span className="truncate">{vendor.address}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(vendor)}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDelete(vendor.id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </main>
+    </div>
+  )
+}
