@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Package, Users, Tag, TrendingUp, Home, FileText, ShoppingCart, Menu, ChevronLeft, LogOut } from "lucide-react"
+import { Package, Users, Tag, TrendingUp, Home, FileText, ShoppingCart, Menu, ChevronLeft, LogOut, Receipt } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
@@ -16,6 +16,7 @@ const navigation = [
 	{ name: "Stock", href: "/stock", icon: TrendingUp },
 	{ name: "Ventas", href: "/sells", icon: ShoppingCart },
 	{ name: "Clientes", href: "/customers", icon: Users },
+	{ name: "Facturación Electrónica", href: "/electronic-invoice", icon: Receipt },
 	{ name: "Reportes", href: "/reports", icon: FileText },
 ]
 
