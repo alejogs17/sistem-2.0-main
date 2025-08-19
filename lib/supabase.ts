@@ -3,8 +3,24 @@ import { createBrowserSupabaseClient } from '@supabase/auth-helpers-nextjs'
 // Solo necesitas el cliente para el navegador aquí
 export const supabase = createBrowserSupabaseClient()
 
+// Importar tipos DIAN
+export type {
+  Organization,
+  Invoice,
+  InvoiceItem,
+  Event,
+  InvoiceStatus,
+  EventType,
+  EventStatus,
+  CreateInvoiceRequest,
+  CreateInvoiceItemRequest,
+  DianResponse,
+  DianError,
+  CufeData,
+  DianConfig
+} from './types/dian'
 
-// Tipos de datos
+// Tipos de datos existentes
 export interface Category {
   id: number
   name: string

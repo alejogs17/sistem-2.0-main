@@ -719,7 +719,7 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                   />
                 </div>
               </div>
-            </div>
+      </div>
 
             {/* Cliente */}
             <div className="border border-gray-200 rounded-lg p-3">
@@ -761,7 +761,7 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                     readOnly
                   />
                 </div>
-                <div>
+        <div>
                   <label className="block text-xs text-gray-500 mb-1">Método de pago</label>
                   <select
                     value={paymentMethod}
@@ -773,9 +773,9 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                     <option>Efectivo</option>
                   </select>
                 </div>
-              </div>
-            </div>
-          </div>
+        </div>
+        </div>
+      </div>
 
           {/* Acciones */}
           <div className="flex gap-3 mb-4 print-hidden">
@@ -788,7 +788,7 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
           {/* Tabla de productos */}
           <div className="border border-gray-200 rounded-lg overflow-hidden mb-4">
             <table className="w-full border-collapse">
-              <thead>
+        <thead>
                 <tr className="bg-gray-50">
                   <th className="text-left p-2 text-xs font-semibold text-gray-600 border-b border-gray-200" style={{width: '70px'}}>Cant.</th>
                   <th className="text-left p-2 text-xs font-semibold text-gray-600 border-b border-gray-200">Descripción</th>
@@ -797,9 +797,9 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                   <th className="text-left p-2 text-xs font-semibold text-gray-600 border-b border-gray-200" style={{width: '80px'}}>Impuesto %</th>
                   <th className="text-right p-2 text-xs font-semibold text-gray-600 border-b border-gray-200" style={{width: '100px'}}>Importe</th>
                   <th className="text-center p-2 text-xs font-semibold text-gray-600 border-b border-gray-200 print-hidden" style={{width: '40px'}}></th>
-                </tr>
-              </thead>
-              <tbody>
+          </tr>
+        </thead>
+        <tbody>
                 {items.map((item, index) => {
                   const { total } = calculateItemTotal(item)
                   return (
@@ -842,7 +842,7 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                           onChange={(e) => updateItem(index, 'discount', parseFloat(e.target.value) || 0)}
                           className="w-full px-1 py-1 border border-gray-300 rounded text-xs text-right"
                         />
-                      </td>
+            </td>
                       <td className="p-2">
                         <input
                           type="number"
@@ -852,10 +852,10 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                           onChange={(e) => updateItem(index, 'tax', parseFloat(e.target.value) || 0)}
                           className="w-full px-1 py-1 border border-gray-300 rounded text-xs text-right"
                         />
-                      </td>
+            </td>
                       <td className="p-2 text-right font-mono text-xs">
                         {formatCurrency(total)}
-                      </td>
+              </td>
                       <td className="p-2 text-center print-hidden">
                         <Button
                           variant="ghost"
@@ -866,12 +866,12 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>
-                      </td>
-                    </tr>
+            </td>
+          </tr>
                   )
                 })}
               </tbody>
-            </table>
+      </table>
           </div>
 
           {/* Totales y notas */}
@@ -888,7 +888,7 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
               </div>
             </div>
             
-            <div>
+          <div>
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
@@ -908,9 +908,9 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
           </div>
+        </div>
+      </div>
 
           {/* Footer */}
           <div className="mt-4 pt-4 border-t border-gray-200">
@@ -927,8 +927,8 @@ export function InvoiceTemplate({ sell, isOpen, onClose, onGenerateInvoice }: In
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+      </div>
+    </div>
 
         <DialogFooter className="flex gap-2 print-hidden">
           <Button variant="outline" onClick={onClose}>
