@@ -2,7 +2,7 @@
 
 # dependencies
 /node_modules
-
+/fix_foreign_key_violation.sql
 # next.js
 /.next/
 /out/
@@ -18,6 +18,29 @@ yarn-error.log*
 
 # env files
 .env*
+
+# editors and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# artifacts and reports
+coverage/
+dist/
+.turbo/
+.pnpm-store/
+
+# docs and binaries
+*.pdf
+*.pem
+*.key
+*.crt
+*.pfx
+*.keystore
+*.sqlite
+*.db
+*.tar
+*.zip
 
 # vercel
 .vercel

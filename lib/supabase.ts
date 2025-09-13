@@ -1,7 +1,10 @@
-import { createBrowserSupabaseClient } from '@supabase/auth-helpers-nextjs'
+import { createBrowserClient } from '@supabase/ssr'
 
-// Solo necesitas el cliente para el navegador aquí
-export const supabase = createBrowserSupabaseClient()
+// Cliente actualizado para el navegador usando @supabase/ssr
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 
 // Tipos de datos

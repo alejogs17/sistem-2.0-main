@@ -165,20 +165,38 @@ export default function SellsPage() {
   }
 
   const fetchStocks = async () => {
-    const { data, error } = await supabase
-      .from("stocks")
-      .select(`
-        *,
-        products(product_name)
-      `)
-      .gt("current_quantity", 0)
-      .eq("status", 1)
-      .order("created_at", { ascending: false })
+    try {
+      const { data: stocksData, error: stocksError } = await supabase
+        .from("stocks")
+        .select("*")
+        .gt("current_quantity", 0)
+        .eq("status", 1)
+        .order("created_at", { ascending: false })
 
-    if (error) {
-      console.error("Error fetching stocks:", error)
-    } else {
-      setStocks(data || [])
+      if (stocksError) {
+        console.error("Error fetching stocks:", stocksError)
+        return
+      }
+
+      // Obtener los productos relacionados
+      const stocksWithProducts = await Promise.all(
+        (stocksData || []).map(async (stock) => {
+          const productResult = await supabase
+            .from("products")
+            .select("product_name")
+            .eq("id", stock.product_id)
+            .single()
+          
+          return {
+            ...stock,
+            products: productResult.data
+          }
+        })
+      )
+
+      setStocks(stocksWithProducts)
+    } catch (error) {
+      console.error("Error in fetchStocks:", error)
     }
   }
 

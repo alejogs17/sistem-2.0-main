@@ -16,6 +16,7 @@ const navigation = [
 	{ name: "Stock", href: "/stock", icon: TrendingUp },
 	{ name: "Ventas", href: "/sells", icon: ShoppingCart },
 	{ name: "Clientes", href: "/customers", icon: Users },
+	{ name: "Facturación", href: "/facturacion-electronica", icon: FileText },
 	{ name: "Reportes", href: "/reports", icon: FileText },
 ]
 

@@ -103,20 +103,47 @@ const [loadingStates, setLoadingStates] = useState({
  const fetchStocks = async () => {
   try {
     setLoadingStates(prev => ({ ...prev, stocks: true }))
-    const { data, error } = await supabase
+    console.log("Fetching stocks...")
+    
+    // Intentar consulta con joins primero
+    const { data: stocksData, error: stocksError } = await supabase
       .from("stocks")
       .select(`
         *,
-        products:products(*),
-        vendors:vendors(*),
-        categories:categories(*)
+        products:products(product_name, details, status),
+        vendors:vendors(name, phone),
+        categories:categories(name)
       `)
       .order("id", { ascending: false })
-    if (error) throw error
-    setStocks(data || [])
+    
+    if (stocksError) {
+      console.error("Error en fetchStocks con joins:", stocksError)
+      
+      // Si falla la consulta con joins, intentar consulta simple
+      console.log("Intentando consulta simple...")
+      const { data: simpleStocksData, error: simpleError } = await supabase
+        .from("stocks")
+        .select("*")
+        .order("id", { ascending: false })
+      
+      if (simpleError) {
+        console.error("Error en consulta simple:", simpleError)
+        throw simpleError
+      }
+      
+      console.log("Stocks fetched successfully (simple):", simpleStocksData)
+      setStocks(simpleStocksData || [])
+    } else {
+      console.log("Stocks fetched successfully (with joins):", stocksData)
+      setStocks(stocksData || [])
+    }
   } catch (error) {
     console.error("Error fetching stocks:", error)
-    throw error
+    toast({
+      title: "Error",
+      description: "No se pudieron cargar los stocks: " + (error as any).message,
+      variant: "destructive",
+    })
   } finally {
     setLoadingStates(prev => ({ ...prev, stocks: false }))
   }
@@ -133,16 +160,32 @@ const [cache, setCache] = useState<{
 })
 
 const fetchProducts = async () => {
-  if (cache.products) return cache.products
-  
-  const { data } = await supabase
-    .from("products")
-    .select("*")
-    .eq("status", 1)
-    .order("product_name")
-  
-  setCache(prev => ({...prev, products: data}))
-  setProducts(data || [])
+  try {
+    if (cache.products) return cache.products
+    
+    console.log("Fetching products...")
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("status", 1)
+      .order("product_name")
+    
+    if (error) {
+      console.error("Error fetching products:", error)
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los productos: " + error.message,
+        variant: "destructive",
+      })
+      return
+    }
+    
+    console.log("Products fetched successfully:", data)
+    setCache(prev => ({...prev, products: data}))
+    setProducts(data || [])
+  } catch (error) {
+    console.error("Error in fetchProducts:", error)
+  }
 }
 
   const fetchVendors = async () => {
@@ -224,26 +267,82 @@ const fetchProducts = async () => {
       })
       setIsDialogOpen(false)
       resetForm()
-      fetchStocks()
+      
+      // Forzar actualización inmediata
+      console.log("Actualizando lista de stocks...")
+      setTimeout(() => {
+        fetchStocks()
+      }, 100)
     }
   }
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar este stock?")) {
-      const { error } = await supabase.from("stocks").delete().eq("id", id)
+      try {
+        // Primero verificar si hay sell_details que referencian este stock
+        const { data: sellDetails, error: checkError } = await supabase
+          .from("sell_details")
+          .select("id")
+          .eq("stock_id", id)
 
-      if (error) {
+        if (checkError) {
+          console.error("Error checking sell_details:", checkError)
+          toast({
+            title: "Error",
+            description: "Error al verificar referencias del stock",
+            variant: "destructive",
+          })
+          return
+        }
+
+        // Si hay sell_details, mostrar advertencia
+        if (sellDetails && sellDetails.length > 0) {
+          const shouldContinue = confirm(
+            `Este stock tiene ${sellDetails.length} venta(s) asociada(s). ` +
+            "Al eliminar el stock, las referencias en las ventas se establecerán como NULL. " +
+            "¿Deseas continuar?"
+          )
+          
+          if (!shouldContinue) {
+            return
+          }
+        }
+
+        // Intentar eliminar el stock
+        const { error } = await supabase.from("stocks").delete().eq("id", id)
+
+        if (error) {
+          console.error("Error deleting stock:", error)
+          
+          // Si es un error de restricción de clave foránea, intentar solución manual
+          if (error.code === '23503' || error.message.includes('violates foreign key constraint')) {
+            toast({
+              title: "Error de Restricción",
+              description: "No se puede eliminar el stock porque tiene ventas asociadas. " +
+                          "Ejecuta el script de corrección en la base de datos.",
+              variant: "destructive",
+            })
+          } else {
+            toast({
+              title: "Error",
+              description: "No se pudo eliminar el stock: " + error.message,
+              variant: "destructive",
+            })
+          }
+        } else {
+          toast({
+            title: "Éxito",
+            description: "Stock eliminado correctamente",
+          })
+          fetchStocks()
+        }
+      } catch (error) {
+        console.error("Unexpected error in handleDelete:", error)
         toast({
-          title: "Error",
-          description: "No se pudo eliminar el stock",
+          title: "Error Inesperado",
+          description: "Ocurrió un error inesperado al eliminar el stock",
           variant: "destructive",
         })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Stock eliminado correctamente",
-        })
-        fetchStocks()
       }
     }
   }
@@ -316,6 +415,22 @@ if (loading) {
             <h1 className="text-3xl font-bold text-gray-900">Gestión de Stock</h1>
             <p className="text-gray-600">Administra las entradas de productos con precios y cantidades</p>
           </div>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log("Recargando stocks manualmente...")
+                fetchStocks()
+              }}
+              disabled={loadingStates.stocks}
+            >
+              {loadingStates.stocks ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+              ) : (
+                <Package className="w-4 h-4 mr-2" />
+              )}
+              Recargar
+            </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={resetForm}>
@@ -603,17 +718,29 @@ if (loading) {
             </DialogContent>
           </Dialog>
         </div>
+        </div>
 
         {/* Lista de stocks */}
         <div className="grid gap-4">
-          {stocks.map((stock) => (
+          {loadingStates.stocks && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-gray-500">Cargando stocks...</p>
+              </CardContent>
+            </Card>
+          )}
+          
+          {!loadingStates.stocks && stocks.map((stock) => (
             <Card key={stock.id}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <Package className="w-5 h-5 text-gray-500" />
-                      <h3 className="text-lg font-semibold">{stock.products?.product_name}</h3>
+                      <h3 className="text-lg font-semibold">
+                        {stock.products?.product_name || `Producto ID: ${stock.product_id || 'N/A'}`}
+                      </h3>
                       {stock.current_quantity <= 10 && <AlertTriangle className="w-5 h-5 text-red-500" />}
                       {stock.current_quantity === 0 && <Badge variant="destructive">Sin stock</Badge>}
                       {stock.current_quantity > 0 && stock.current_quantity <= 10 && (
@@ -689,6 +816,12 @@ if (loading) {
                 <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500">No hay productos en stock</p>
                 <p className="text-sm text-gray-400">Agrega productos del catálogo para comenzar</p>
+                <div className="mt-4 p-4 bg-gray-100 rounded text-left">
+                  <p className="text-sm font-medium mb-2">Información de Debug:</p>
+                  <p className="text-xs text-gray-600">Total de stocks: {stocks.length}</p>
+                  <p className="text-xs text-gray-600">Estado de carga: {loadingStates.stocks ? 'Cargando' : 'Completado'}</p>
+                  <p className="text-xs text-gray-600">Última actualización: {new Date().toLocaleTimeString()}</p>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -697,4 +830,3 @@ if (loading) {
     </div>
   )
 }
-
