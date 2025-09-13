@@ -8,6 +8,7 @@ import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SearchFilter } from "@/components/ui/search-filter"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -20,14 +21,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { supabase, type Product, type Category, type Vendor } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Product, Category, Vendor } from "@/types/domain"
+import { ProductsRepository } from "@/lib/repositories/productsRepository"
+import { CategoriesRepository } from "@/lib/repositories/categoriesRepository"
+import { VendorsRepository } from "@/lib/repositories/vendorsRepository"
 import { Plus, Edit, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function ProductsPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
@@ -37,108 +40,59 @@ export default function ProductsPage() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    product_name: "",
+    productName: "",
     details: "",
-    category_id: "",
+    categoryId: "",
     status: 1,
   })
 
   useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          router.replace('/login')
-          return
-        }
-
-        setSession(session)
-
-        // Timeout para las llamadas a la API
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000)
-        )
-
-        await Promise.race([
-          Promise.all([
-            fetchProducts(),
-            fetchCategories(),
-            fetchVendors()
-          ]),
-          timeoutPromise
-        ])
-
-      } catch (error) {
-        console.error('Error durante la carga inicial:', error)
-        toast({
-          title: "Error",
-          description: "Hubo un problema al cargar los datos",
-          variant: "destructive",
-        })
-        router.replace('/login')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    checkUser()
-
-    // Suscripción a cambios en la sesión
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace('/login')
-      } else {
-        setSession(session)
-      }
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000))
+    Promise.race([
+      Promise.all([fetchProducts(), fetchCategories(), fetchVendors() ]),
+      timeoutPromise
+    ]).catch(() => {
+      toast({ title: 'Error', description: 'Hubo un problema al cargar los datos', variant: 'destructive' })
     })
+  }, [])
 
-    return () => subscription.unsubscribe()
-  }, [router])
+  const productsRepository = new ProductsRepository(supabase)
+  const categoriesRepository = new CategoriesRepository(supabase)
+  const vendorsRepository = new VendorsRepository(supabase)
 
   const fetchProducts = async () => {
-    const { data, error } = await supabase
-      .from("products")
-      .select(`
-        *,
-        categories(name)
-      `)
-      .order("created_at", { ascending: false })
-
-    if (error) {
+    try {
+      const data = await productsRepository.list()
+      setProducts(data)
+    } catch (error) {
       console.error("Error fetching products:", error)
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar los productos",
-        variant: "destructive",
-      })
-    } else {
-      setProducts(data || [])
+      toast({ title: "Error", description: "No se pudieron cargar los productos", variant: "destructive" })
     }
   }
 
   const fetchCategories = async () => {
-    const { data, error } = await supabase.from("categories").select("*").eq("status", 1).order("name")
-    if (error) {
+    try {
+      const data = await categoriesRepository.listActive()
+      setCategories(data)
+    } catch (error) {
       console.error("Error fetching categories:", error)
     }
-    setCategories(data || [])
   }
 
   const fetchVendors = async () => {
-    const { data, error } = await supabase.from("vendors").select("*").order("name")
-    if (error) {
+    try {
+      const data = await vendorsRepository.list()
+      setVendors(data)
+    } catch (error) {
       console.error("Error fetching vendors:", error)
     }
-    setVendors(data || [])
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     // Validación básica
-    if (!formData.product_name.trim()) {
+    if (!formData.productName.trim()) {
       toast({
         title: "Error",
         description: "El nombre del producto es requerido",
@@ -147,68 +101,49 @@ export default function ProductsPage() {
       return
     }
 
-    const productData = {
-      product_name: formData.product_name.trim(),
+    const productData: Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'categories'> = {
+      productName: formData.productName.trim(),
       details: formData.details.trim() || null,
-      category_id: formData.category_id ? Number.parseInt(formData.category_id) : null,
+      categoryId: formData.categoryId ? Number.parseInt(formData.categoryId) : null,
       status: formData.status,
     }
 
     console.log("Sending product data:", productData)
 
-    let error
-    if (editingProduct) {
-      const { error: updateError } = await supabase.from("products").update(productData).eq("id", editingProduct.id)
-      error = updateError
-    } else {
-      const { error: insertError } = await supabase.from("products").insert([productData])
-      error = insertError
-    }
-
-    if (error) {
-      console.error("Database error:", error)
-      toast({
-        title: "Error",
-        description: `Error al ${editingProduct ? "actualizar" : "crear"} el producto: ${error.message}`,
-        variant: "destructive",
-      })
-    } else {
-      toast({
-        title: "Éxito",
-        description: `Producto ${editingProduct ? "actualizado" : "creado"} correctamente`,
-      })
+    try {
+      if (editingProduct) {
+        await productsRepository.update(editingProduct.id, productData)
+      } else {
+        await productsRepository.create(productData)
+      }
+      toast({ title: "Éxito", description: `Producto ${editingProduct ? "actualizado" : "creado"} correctamente` })
       setIsDialogOpen(false)
       resetForm()
       fetchProducts()
+    } catch (error: any) {
+      console.error("Database error:", error)
+      toast({ title: "Error", description: `Error al ${editingProduct ? "actualizar" : "crear"} el producto`, variant: "destructive" })
     }
   }
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar este producto?")) {
-      const { error } = await supabase.from("products").delete().eq("id", id)
-
-      if (error) {
-        console.error("Delete error:", error)
-        toast({
-          title: "Error",
-          description: "No se pudo eliminar el producto",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Producto eliminado correctamente",
-        })
+      try {
+        await productsRepository.remove(id)
+        toast({ title: "Éxito", description: "Producto eliminado correctamente" })
         fetchProducts()
+      } catch (error) {
+        console.error("Delete error:", error)
+        toast({ title: "Error", description: "No se pudo eliminar el producto", variant: "destructive" })
       }
     }
   }
 
   const resetForm = () => {
     setFormData({
-      product_name: "",
+      productName: "",
       details: "",
-      category_id: "",
+      categoryId: "",
       status: 1,
     })
     setEditingProduct(null)
@@ -217,33 +152,20 @@ export default function ProductsPage() {
   const openEditDialog = (product: Product) => {
     setEditingProduct(product)
     setFormData({
-      product_name: product.product_name,
+      productName: product.productName,
       details: product.details || "",
-      category_id: product.category_id?.toString() || "",
+      categoryId: product.categoryId?.toString() || "",
       status: product.status,
     })
     setIsDialogOpen(true)
   }
 
   const filteredProducts = products.filter((product) =>
-    product.product_name.toLowerCase().includes(searchTerm.toLowerCase()),
+    product.productName.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
   // Componente de carga
-  if (!session || loading) {
-    return (
-      <div className="flex min-h-screen bg-gray-100">
-        <Navigation />
-        <main className="flex-1 p-8">
-          <div className="flex flex-col items-center justify-center h-[80vh] space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            <h2 className="text-xl font-semibold text-gray-700">Verificando acceso...</h2>
-            <p className="text-gray-500">Por favor espera mientras verificamos tu sesión</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
+  
 
   return (
     <div className="flex">
@@ -274,8 +196,8 @@ export default function ProductsPage() {
                     <Label htmlFor="product_name">Nombre del Producto *</Label>
                     <Input
                       id="product_name"
-                      value={formData.product_name}
-                      onChange={(e) => setFormData({ ...formData, product_name: e.target.value })}
+                      value={formData.productName}
+                      onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
                       required
                       placeholder="Ej: Arroz blanco 1kg"
                     />
@@ -284,8 +206,8 @@ export default function ProductsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="category_id">Categoría</Label>
                     <Select
-                      value={formData.category_id}
-                      onValueChange={(value) => setFormData({ ...formData, category_id: value })}
+                      value={formData.categoryId}
+                      onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Seleccionar categoría" />
@@ -341,10 +263,9 @@ export default function ProductsPage() {
 
         {/* Barra de búsqueda */}
         <div className="mb-6">
-          <Input
+          <SearchFilter
             placeholder="Buscar productos por nombre..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onFilter={setSearchTerm}
             className="max-w-md"
           />
         </div>
@@ -356,8 +277,8 @@ export default function ProductsPage() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-lg font-semibold">{product.product_name}</h3>
+                      <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-lg font-semibold">{product.productName}</h3>
                       <span
                         className={`px-2 py-1 text-xs rounded-full ${
                           product.status === 1 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
@@ -374,7 +295,7 @@ export default function ProductsPage() {
                       </div>
                       <div>
                         <span className="font-medium">Creado:</span>
-                        <p>{new Date(product.created_at).toLocaleDateString()}</p>
+                        <p>{new Date(product.createdAt).toLocaleDateString()}</p>
                       </div>
                     </div>
                   </div>

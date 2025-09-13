@@ -1,12 +1,14 @@
 "use client"
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import LoginForm from '../../components/LoginForm';
 
 export default function LoginPage() {
   const [error, setError] = useState('');
+  const router = useRouter()
 
   const handleLogin = async ({ email, password }: { email: string; password: string }) => {
     setError('');
@@ -14,9 +16,8 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
     } else {
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1200);
+      // Redirige inmediatamente al dashboard (middleware mantendrá la sesión)
+      router.replace('/')
     }
   };
 

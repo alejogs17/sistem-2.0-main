@@ -1,4 +1,4 @@
-import type { Sell, SellDetail, Customer } from "@/lib/supabase"
+import type { Sell, SellDetail, Customer } from "@/types/domain"
 
 interface InvoiceTemplateProps {
   sell: Sell
@@ -26,7 +26,7 @@ export function InvoiceTemplate({ sell, details, customer }: InvoiceTemplateProp
       <div className="flex justify-between mb-6">
         <div>
           <h3 className="font-bold">Cliente:</h3>
-          <p>{customer.customer_name}</p>
+          <p>{customer.customerName}</p>
           <p>{customer.address || ""}</p>
           <p>{customer.phone || ""}</p>
           <p>{customer.email || ""}</p>
@@ -35,7 +35,7 @@ export function InvoiceTemplate({ sell, details, customer }: InvoiceTemplateProp
           <h3 className="font-bold">Factura #:</h3>
           <p>{sell.id}</p>
           <h3 className="font-bold mt-2">Fecha:</h3>
-          <p>{sell.sell_date || formatDate(sell.created_at)}</p>
+          <p>{sell.sellDate || formatDate(sell.createdAt)}</p>
         </div>
       </div>
 
@@ -51,10 +51,10 @@ export function InvoiceTemplate({ sell, details, customer }: InvoiceTemplateProp
         <tbody>
           {details.map((detail, index) => (
             <tr key={index} className="border-b">
-              <td className="py-2">{detail.products?.product_name}</td>
-              <td className="py-2 text-right">{detail.sold_quantity}</td>
-              <td className="py-2 text-right">${detail.sold_price.toFixed(2)}</td>
-              <td className="py-2 text-right">${detail.total_sold_price.toFixed(2)}</td>
+              <td className="py-2">{detail.stock?.product?.productName || 'Producto desconocido'}</td>
+              <td className="py-2 text-right">{detail.soldQuantity}</td>
+              <td className="py-2 text-right">${detail.soldPrice.toFixed(2)}</td>
+              <td className="py-2 text-right">${detail.totalSoldPrice.toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
@@ -64,22 +64,22 @@ export function InvoiceTemplate({ sell, details, customer }: InvoiceTemplateProp
               Subtotal:
             </td>
             <td className="py-2 text-right font-medium">
-              ${(sell.total_amount + (sell.discount_amount || 0)).toFixed(2)}
+              ${(sell.totalAmount + (sell.discountAmount || 0)).toFixed(2)}
             </td>
           </tr>
-          {sell.discount_amount > 0 && (
+          {sell.discountAmount > 0 && (
             <tr>
               <td colSpan={3} className="py-2 text-right font-medium">
                 Descuento:
               </td>
-              <td className="py-2 text-right font-medium">-${sell.discount_amount.toFixed(2)}</td>
+              <td className="py-2 text-right font-medium">-${sell.discountAmount.toFixed(2)}</td>
             </tr>
           )}
           <tr className="border-t-2 border-gray-300">
             <td colSpan={3} className="py-2 text-right font-bold">
               Total:
             </td>
-            <td className="py-2 text-right font-bold">${sell.total_amount.toFixed(2)}</td>
+            <td className="py-2 text-right font-bold">${sell.totalAmount.toFixed(2)}</td>
           </tr>
         </tfoot>
       </table>
@@ -89,15 +89,15 @@ export function InvoiceTemplate({ sell, details, customer }: InvoiceTemplateProp
           <div>
             <h3 className="font-bold mb-2">Método de Pago:</h3>
             <p>
-              {sell.payment_method === 0 && "Efectivo"}
-              {sell.payment_method === 1 && "Tarjeta"}
-              {sell.payment_method === 2 && "Transferencia"}
+              {sell.paymentMethod === 0 && "Efectivo"}
+              {sell.paymentMethod === 1 && "Tarjeta"}
+              {sell.paymentMethod === 2 && "Transferencia"}
             </p>
           </div>
           <div>
             <h3 className="font-bold mb-2">Estado de Pago:</h3>
             <p>
-              {sell.payment_status === 1 ? (
+              {sell.paymentStatus === 1 ? (
                 <span className="text-green-600">PAGADO</span>
               ) : (
                 <span className="text-red-600">PENDIENTE</span>

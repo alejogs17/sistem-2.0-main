@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,11 +18,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { supabase, type Vendor } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Vendor } from "@/types/domain"
+import { VendorsRepository } from "@/lib/repositories/vendorsRepository"
 import { Plus, Edit, Trash2, Phone, Mail, MapPin } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function VendorsPage() {
+  const router = useRouter()
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
@@ -39,65 +43,43 @@ export default function VendorsPage() {
     fetchVendors()
   }, [])
 
-  const fetchVendors = async () => {
-    const { data, error } = await supabase.from("vendors").select("*").order("created_at", { ascending: false })
+  const repository = new VendorsRepository(supabase)
 
-    if (error) {
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar los proveedores",
-        variant: "destructive",
-      })
-    } else {
-      setVendors(data || [])
+  const fetchVendors = async () => {
+    try {
+      const list = await repository.list()
+      setVendors(list)
+    } catch (error) {
+      toast({ title: "Error", description: "No se pudieron cargar los proveedores", variant: "destructive" })
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    let error
-    if (editingVendor) {
-      const { error: updateError } = await supabase.from("vendors").update(formData).eq("id", editingVendor.id)
-      error = updateError
-    } else {
-      const { error: insertError } = await supabase.from("vendors").insert([formData])
-      error = insertError
-    }
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      })
-    } else {
-      toast({
-        title: "Éxito",
-        description: `Proveedor ${editingVendor ? "actualizado" : "creado"} correctamente`,
-      })
+    try {
+      if (editingVendor) {
+        await repository.update(editingVendor.id, formData)
+      } else {
+        await repository.create(formData as any)
+      }
+      toast({ title: "Éxito", description: `Proveedor ${editingVendor ? "actualizado" : "creado"} correctamente` })
       setIsDialogOpen(false)
       resetForm()
       fetchVendors()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || 'No se pudo guardar', variant: "destructive" })
     }
   }
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar este proveedor?")) {
-      const { error } = await supabase.from("vendors").delete().eq("id", id)
-
-      if (error) {
-        toast({
-          title: "Error",
-          description: "No se pudo eliminar el proveedor",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Proveedor eliminado correctamente",
-        })
+      try {
+        await repository.remove(id)
+        toast({ title: "Éxito", description: "Proveedor eliminado correctamente" })
         fetchVendors()
+      } catch {
+        toast({ title: "Error", description: "No se pudo eliminar el proveedor", variant: "destructive" })
       }
     }
   }
@@ -129,6 +111,8 @@ export default function VendorsPage() {
       vendor.phone.includes(searchTerm) ||
       (vendor.email && vendor.email.toLowerCase().includes(searchTerm.toLowerCase())),
   )
+
+  
 
   return (
     <div className="flex">

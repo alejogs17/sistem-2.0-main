@@ -38,6 +38,16 @@ export function Navigation() {
 		localStorage.setItem("sidebarCollapsed", isCollapsed.toString())
 	}, [isCollapsed])
 
+	// Prefetch de rutas para navegación más rápida entre módulos
+	useEffect(() => {
+		try {
+			navigation.forEach((item) => {
+				router.prefetch(item.href)
+			})
+		} catch {}
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [])
+
 	// Función para cerrar sesión
 	const handleLogout = async () => {
 		await supabase.auth.signOut()
@@ -79,9 +89,10 @@ export function Navigation() {
 							const Icon = item.icon
 							return (
 								<li key={item.name}>
-									<Link
-										href={item.href}
-										className={cn(
+										<Link
+											href={item.href}
+											prefetch
+											className={cn(
 											"flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
 											pathname === item.href
 												? "bg-gray-700 text-white"

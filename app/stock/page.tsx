@@ -7,6 +7,7 @@ import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SearchFilter } from "@/components/ui/search-filter"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -21,7 +22,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { supabase, type Stock, type Product, type Vendor, type Category } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Stock, Product, Vendor, Category } from "@/types/domain"
+import { StocksRepository } from "@/lib/repositories/stocksRepository"
+import { ProductsRepository } from "@/lib/repositories/productsRepository"
+import { VendorsRepository } from "@/lib/repositories/vendorsRepository"
+import { CategoriesRepository } from "@/lib/repositories/categoriesRepository"
 import { Plus, Edit, Trash2, Package, AlertTriangle, Search, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -45,30 +51,20 @@ export default function StockPage() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    product_id: "",
-    vendor_id: "",
-    buying_price: "",
-    selling_price: "",
+    productId: "",
+    vendorId: "",
+    buyingPrice: "",
+    sellingPrice: "",
     discount: "0",
-    stock_quantity: "",
-    current_quantity: "",
+    stockQuantity: "",
+    currentQuantity: "",
     note: "",
   })
 
 useEffect(() => {
-  const checkUser = async () => {
+  const load = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-        return
-      }
-
-      // Agregamos manejo de errores y un timeout de seguridad
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000)
-      );
-
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000));
       await Promise.race([
         Promise.all([
           fetchStocks(),
@@ -78,20 +74,14 @@ useEffect(() => {
         ]),
         timeoutPromise
       ]);
-
     } catch (error) {
       console.error('Error durante la carga inicial:', error);
-      toast({
-        title: "Error",
-        description: "Hubo un problema al cargar los datos",
-        variant: "destructive",
-      })
+      toast({ title: 'Error', description: 'Hubo un problema al cargar los datos', variant: 'destructive' })
     } finally {
-      setLoading(false) // Aseguramos que loading se establezca en false
+      setLoading(false)
     }
   }
-  
-  checkUser()
+  load()
 }, [])
 const [loadingStates, setLoadingStates] = useState({
   stocks: true,
@@ -100,43 +90,17 @@ const [loadingStates, setLoadingStates] = useState({
   categories: true
 })
 
+ const stocksRepository = new StocksRepository(supabase)
+ const productsRepository = new ProductsRepository(supabase)
+ const vendorsRepository = new VendorsRepository(supabase)
+ const categoriesRepository = new CategoriesRepository(supabase)
+
  const fetchStocks = async () => {
   try {
     setLoadingStates(prev => ({ ...prev, stocks: true }))
     console.log("Fetching stocks...")
-    
-    // Intentar consulta con joins primero
-    const { data: stocksData, error: stocksError } = await supabase
-      .from("stocks")
-      .select(`
-        *,
-        products:products(product_name, details, status),
-        vendors:vendors(name, phone),
-        categories:categories(name)
-      `)
-      .order("id", { ascending: false })
-    
-    if (stocksError) {
-      console.error("Error en fetchStocks con joins:", stocksError)
-      
-      // Si falla la consulta con joins, intentar consulta simple
-      console.log("Intentando consulta simple...")
-      const { data: simpleStocksData, error: simpleError } = await supabase
-        .from("stocks")
-        .select("*")
-        .order("id", { ascending: false })
-      
-      if (simpleError) {
-        console.error("Error en consulta simple:", simpleError)
-        throw simpleError
-      }
-      
-      console.log("Stocks fetched successfully (simple):", simpleStocksData)
-      setStocks(simpleStocksData || [])
-    } else {
-      console.log("Stocks fetched successfully (with joins):", stocksData)
-      setStocks(stocksData || [])
-    }
+    const stocksData = await stocksRepository.listWithRelations()
+    setStocks(stocksData)
   } catch (error) {
     console.error("Error fetching stocks:", error)
     toast({
@@ -162,40 +126,22 @@ const [cache, setCache] = useState<{
 const fetchProducts = async () => {
   try {
     if (cache.products) return cache.products
-    
-    console.log("Fetching products...")
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("status", 1)
-      .order("product_name")
-    
-    if (error) {
-      console.error("Error fetching products:", error)
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar los productos: " + error.message,
-        variant: "destructive",
-      })
-      return
-    }
-    
-    console.log("Products fetched successfully:", data)
-    setCache(prev => ({...prev, products: data}))
-    setProducts(data || [])
+    const data = await productsRepository.list()
+    setCache(prev => ({...prev, products: data as any}))
+    setProducts(data)
   } catch (error) {
     console.error("Error in fetchProducts:", error)
   }
 }
 
   const fetchVendors = async () => {
-    const { data } = await supabase.from("vendors").select("*").order("name")
-    setVendors(data || [])
+    const data = await vendorsRepository.list()
+    setVendors(data)
   }
 
   const fetchCategories = async () => {
-    const { data } = await supabase.from("categories").select("*").eq("status", 1).order("name")
-    setCategories(data || [])
+    const data = await categoriesRepository.listActive()
+    setCategories(data)
   }
 
   const generateProductCode = () => {
@@ -216,7 +162,7 @@ const fetchProducts = async () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.product_id || !formData.buying_price || !formData.selling_price || !formData.stock_quantity) {
+    if (!formData.productId || !formData.buyingPrice || !formData.sellingPrice || !formData.stockQuantity) {
       toast({
         title: "Error",
         description: "Por favor completa todos los campos requeridos",
@@ -225,54 +171,50 @@ const fetchProducts = async () => {
       return
     }
 
-    const selectedProduct = products.find((p) => p.id === Number.parseInt(formData.product_id))
+    const selectedProduct = products.find((p) => p.id === Number.parseInt(formData.productId))
 
     const stockData = {
-      category_id: selectedProduct?.category_id || null,
-      product_code: generateProductCode(),
-      product_id: Number.parseInt(formData.product_id),
-      vendor_id: formData.vendor_id ? Number.parseInt(formData.vendor_id) : null,
-      chalan_no: generateChalanNo(),
-      buying_price: Number.parseFloat(formData.buying_price),
-      selling_price: Number.parseFloat(formData.selling_price),
+      categoryId: selectedProduct?.categoryId || null,
+      productCode: generateProductCode(),
+      productId: Number.parseInt(formData.productId),
+      vendorId: formData.vendorId ? Number.parseInt(formData.vendorId) : null,
+      chalanNo: generateChalanNo(),
+      buyingPrice: Number.parseFloat(formData.buyingPrice),
+      sellingPrice: Number.parseFloat(formData.sellingPrice),
       discount: Number.parseFloat(formData.discount) || 0,
-      stock_quantity: Number.parseInt(formData.stock_quantity),
-      current_quantity: Number.parseInt(formData.current_quantity || formData.stock_quantity),
+      stockQuantity: Number.parseInt(formData.stockQuantity),
+      currentQuantity: Number.parseInt(formData.currentQuantity || formData.stockQuantity),
       note: formData.note,
       status: 1,
     }
 
     console.log("Sending stock data:", stockData)
 
-    let error
-    if (editingStock) {
-      const { error: updateError } = await supabase.from("stocks").update(stockData).eq("id", editingStock.id)
-      error = updateError
-    } else {
-      const { error: insertError } = await supabase.from("stocks").insert([stockData])
-      error = insertError
-    }
-
-    if (error) {
-      console.error("Database error:", error)
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      })
-    } else {
+    try {
+      if (editingStock) {
+        await stocksRepository.update(editingStock.id, stockData as any)
+      } else {
+        await stocksRepository.create(stockData as any)
+      }
       toast({
         title: "Éxito",
         description: `Stock ${editingStock ? "actualizado" : "agregado"} correctamente`,
       })
       setIsDialogOpen(false)
       resetForm()
-      
+
       // Forzar actualización inmediata
       console.log("Actualizando lista de stocks...")
       setTimeout(() => {
         fetchStocks()
       }, 100)
+    } catch (e: any) {
+      console.error("Database error:", e)
+      toast({
+        title: "Error",
+        description: e?.message || 'No se pudo guardar el stock',
+        variant: "destructive",
+      })
     }
   }
 
@@ -309,13 +251,17 @@ const fetchProducts = async () => {
         }
 
         // Intentar eliminar el stock
-        const { error } = await supabase.from("stocks").delete().eq("id", id)
-
-        if (error) {
+        try {
+          await stocksRepository.remove(id)
+          toast({
+            title: "Éxito",
+            description: "Stock eliminado correctamente",
+          })
+          fetchStocks()
+        } catch (error: any) {
           console.error("Error deleting stock:", error)
-          
           // Si es un error de restricción de clave foránea, intentar solución manual
-          if (error.code === '23503' || error.message.includes('violates foreign key constraint')) {
+          if (error?.code === '23503' || (error?.message && error.message.includes('violates foreign key constraint'))) {
             toast({
               title: "Error de Restricción",
               description: "No se puede eliminar el stock porque tiene ventas asociadas. " +
@@ -325,16 +271,10 @@ const fetchProducts = async () => {
           } else {
             toast({
               title: "Error",
-              description: "No se pudo eliminar el stock: " + error.message,
+              description: "No se pudo eliminar el stock" + (error?.message ? `: ${error.message}` : ''),
               variant: "destructive",
             })
           }
-        } else {
-          toast({
-            title: "Éxito",
-            description: "Stock eliminado correctamente",
-          })
-          fetchStocks()
         }
       } catch (error) {
         console.error("Unexpected error in handleDelete:", error)
@@ -349,13 +289,13 @@ const fetchProducts = async () => {
 
   const resetForm = () => {
     setFormData({
-      product_id: "",
-      vendor_id: "",
-      buying_price: "",
-      selling_price: "",
+      productId: "",
+      vendorId: "",
+      buyingPrice: "",
+      sellingPrice: "",
       discount: "0",
-      stock_quantity: "",
-      current_quantity: "",
+      stockQuantity: "",
+      currentQuantity: "",
       note: "",
     })
     setEditingStock(null)
@@ -364,13 +304,13 @@ const fetchProducts = async () => {
   const openEditDialog = (stock: Stock) => {
     setEditingStock(stock)
     setFormData({
-      product_id: stock.product_id?.toString() || "",
-      vendor_id: stock.vendor_id?.toString() || "",
-      buying_price: stock.buying_price.toString(),
-      selling_price: stock.selling_price.toString(),
+      productId: stock.productId?.toString() || "",
+      vendorId: stock.vendorId?.toString() || "",
+      buyingPrice: stock.buyingPrice.toString(),
+      sellingPrice: stock.sellingPrice.toString(),
       discount: stock.discount.toString(),
-      stock_quantity: stock.stock_quantity.toString(),
-      current_quantity: stock.current_quantity.toString(),
+      stockQuantity: stock.stockQuantity.toString(),
+      currentQuantity: stock.currentQuantity.toString(),
       note: stock.note || "",
     })
     setIsDialogOpen(true)
@@ -378,9 +318,9 @@ const fetchProducts = async () => {
 
   // Función de filtrado para productos en el modal
   const filteredProducts = products.filter((product) => {
-    const matchesSearch = !searchTerm || product.product_name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = !searchTerm || product.productName.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesCategory =
-      !selectedCategory || selectedCategory === "all" || product.category_id?.toString() === selectedCategory
+      !selectedCategory || selectedCategory === "all" || product.categoryId?.toString() === selectedCategory
     return matchesSearch && matchesCategory
   })
 
@@ -470,11 +410,10 @@ if (loading) {
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div className="space-y-2">
                         <Label htmlFor="search">Buscar por nombre</Label>
-                        <Input
-                          id="search"
+                        <SearchFilter
                           placeholder="Nombre del producto..."
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
+                          onFilter={(value) => setSearchTerm(value)}
+                          className="w-full"
                         />
                       </div>
                       <div className="space-y-2">
@@ -501,19 +440,19 @@ if (loading) {
                           <div
                             key={product.id}
                             className={`p-3 border rounded cursor-pointer hover:bg-blue-50 ${
-                              formData.product_id === product.id.toString() ? "bg-blue-100 border-blue-500" : ""
+                              formData.productId === product.id.toString() ? "bg-blue-100 border-blue-500" : ""
                             }`}
-                            onClick={() => setFormData({ ...formData, product_id: product.id.toString() })}
+                            onClick={() => setFormData({ ...formData, productId: product.id.toString() })}
                           >
                             <div className="flex justify-between items-center">
                               <div>
-                                <h4 className="font-medium">{product.product_name}</h4>
+                                <h4 className="font-medium">{product.productName}</h4>
                                 <p className="text-sm text-gray-500">
                                   Categoría:{" "}
-                                  {categories.find((c) => c.id === product.category_id)?.name || "Sin categoría"}
+                                  {categories.find((c) => c.id === product.categoryId)?.name || "Sin categoría"}
                                 </p>
                               </div>
-                              {formData.product_id === product.id.toString() && (
+                              {formData.productId === product.id.toString() && (
                                 <Badge variant="default">Seleccionado</Badge>
                               )}
                             </div>
@@ -533,17 +472,17 @@ if (loading) {
                       <div className="space-y-2 col-span-2">
                         <Label htmlFor="product_id">Producto Seleccionado *</Label>
                         <div className="p-3 border rounded bg-gray-50">
-                          {formData.product_id ? (
+                          {formData.productId ? (
                             <div className="flex justify-between items-center">
                               <span className="font-medium">
-                                {products.find((p) => p.id.toString() === formData.product_id)?.product_name ||
+                                {products.find((p) => p.id.toString() === formData.productId)?.productName ||
                                   "Producto no encontrado"}
                               </span>
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setFormData({ ...formData, product_id: "" })}
+                                onClick={() => setFormData({ ...formData, productId: "" })}
                               >
                                 Cambiar
                               </Button>
@@ -559,8 +498,8 @@ if (loading) {
                       <div className="space-y-2">
                         <Label htmlFor="vendor_id">Proveedor</Label>
                         <Select
-                          value={formData.vendor_id}
-                          onValueChange={(value) => setFormData({ ...formData, vendor_id: value })}
+                          value={formData.vendorId}
+                          onValueChange={(value) => setFormData({ ...formData, vendorId: value })}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar proveedor" />
@@ -582,13 +521,13 @@ if (loading) {
                           id="stock_quantity"
                           type="number"
                           min="1"
-                          value={formData.stock_quantity}
+                          value={formData.stockQuantity}
                           onChange={(e) => {
                             const quantity = e.target.value
                             setFormData({
                               ...formData,
-                              stock_quantity: quantity,
-                              current_quantity: formData.current_quantity || quantity,
+                              stockQuantity: quantity,
+                              currentQuantity: formData.currentQuantity || quantity,
                             })
                           }}
                           required
@@ -602,8 +541,8 @@ if (loading) {
                           id="current_quantity"
                           type="number"
                           min="0"
-                          value={formData.current_quantity}
-                          onChange={(e) => setFormData({ ...formData, current_quantity: e.target.value })}
+                          value={formData.currentQuantity}
+                          onChange={(e) => setFormData({ ...formData, currentQuantity: e.target.value })}
                           required
                           placeholder="Ej: 100"
                         />
@@ -617,8 +556,8 @@ if (loading) {
                           type="number"
                           step="0.01"
                           min="0"
-                          value={formData.buying_price}
-                          onChange={(e) => setFormData({ ...formData, buying_price: e.target.value })}
+                          value={formData.buyingPrice}
+                          onChange={(e) => setFormData({ ...formData, buyingPrice: e.target.value })}
                           required
                           placeholder="Ej: 15.50"
                         />
@@ -631,8 +570,8 @@ if (loading) {
                           type="number"
                           step="0.01"
                           min="0"
-                          value={formData.selling_price}
-                          onChange={(e) => setFormData({ ...formData, selling_price: e.target.value })}
+                          value={formData.sellingPrice}
+                          onChange={(e) => setFormData({ ...formData, sellingPrice: e.target.value })}
                           required
                           placeholder="Ej: 20.00"
                         />
@@ -663,7 +602,7 @@ if (loading) {
                       </div>
 
                       {/* Información calculada */}
-                      {formData.buying_price && formData.selling_price && (
+                      {formData.buyingPrice && formData.sellingPrice && (
                         <div className="col-span-2 p-4 bg-gray-50 rounded-lg">
                           <h4 className="font-medium mb-2">Información Calculada:</h4>
                           <div className="grid grid-cols-3 gap-4 text-sm">
@@ -672,18 +611,18 @@ if (loading) {
                               <p className="font-bold text-green-600">
                                 $
                                 {(
-                                  Number.parseFloat(formData.selling_price) - Number.parseFloat(formData.buying_price)
+                                  Number.parseFloat(formData.sellingPrice) - Number.parseFloat(formData.buyingPrice)
                                 ).toFixed(2)}
                               </p>
                             </div>
                             <div>
                               <span className="text-gray-600">% de Ganancia:</span>
                               <p className="font-bold text-blue-600">
-                                {formData.buying_price
+                                {formData.buyingPrice
                                   ? (
-                                      ((Number.parseFloat(formData.selling_price) -
-                                        Number.parseFloat(formData.buying_price)) /
-                                        Number.parseFloat(formData.buying_price)) *
+                                      ((Number.parseFloat(formData.sellingPrice) -
+                                        Number.parseFloat(formData.buyingPrice)) /
+                                        Number.parseFloat(formData.buyingPrice)) *
                                       100
                                     ).toFixed(1)
                                   : 0}
@@ -694,10 +633,10 @@ if (loading) {
                               <span className="text-gray-600">Valor Total:</span>
                               <p className="font-bold text-purple-600">
                                 $
-                                {formData.stock_quantity
+                                {formData.stockQuantity
                                   ? (
-                                      Number.parseFloat(formData.selling_price) *
-                                      Number.parseInt(formData.stock_quantity)
+                                      Number.parseFloat(formData.sellingPrice) *
+                                      Number.parseInt(formData.stockQuantity)
                                     ).toFixed(2)
                                   : "0.00"}
                               </p>
@@ -739,15 +678,15 @@ if (loading) {
                     <div className="flex items-center gap-2 mb-2">
                       <Package className="w-5 h-5 text-gray-500" />
                       <h3 className="text-lg font-semibold">
-                        {stock.products?.product_name || `Producto ID: ${stock.product_id || 'N/A'}`}
+                        {stock.products?.productName || `Producto ID: ${stock.productId || 'N/A'}`}
                       </h3>
-                      {stock.current_quantity <= 10 && <AlertTriangle className="w-5 h-5 text-red-500" />}
-                      {stock.current_quantity === 0 && <Badge variant="destructive">Sin stock</Badge>}
-                      {stock.current_quantity > 0 && stock.current_quantity <= 10 && (
+                      {stock.currentQuantity <= 10 && <AlertTriangle className="w-5 h-5 text-red-500" />}
+                      {stock.currentQuantity === 0 && <Badge variant="destructive">Sin stock</Badge>}
+                      {stock.currentQuantity > 0 && stock.currentQuantity <= 10 && (
                         <Badge variant="secondary">Stock bajo</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">Código: {stock.product_code}</p>
+                    <p className="text-sm text-gray-600 mb-2">Código: {stock.productCode}</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 text-sm">
                       <div>
                         <span className="font-medium">Categoría:</span>
@@ -759,20 +698,20 @@ if (loading) {
                       </div>
                       <div>
                         <span className="font-medium">P. Compra:</span>
-                        <p>${stock.buying_price}</p>
+                        <p>${stock.buyingPrice}</p>
                       </div>
                       <div>
                         <span className="font-medium">P. Venta:</span>
-                        <p className="font-bold text-green-600">${stock.selling_price}</p>
+                        <p className="font-bold text-green-600">${stock.sellingPrice}</p>
                       </div>
                       <div>
                         <span className="font-medium">Stock Total:</span>
-                        <p>{stock.stock_quantity}</p>
+                        <p>{stock.stockQuantity}</p>
                       </div>
                       <div>
                         <span className="font-medium">Disponible:</span>
-                        <p className={stock.current_quantity <= 10 ? "text-red-600 font-bold" : "font-bold"}>
-                          {stock.current_quantity}
+                        <p className={stock.currentQuantity <= 10 ? "text-red-600 font-bold" : "font-bold"}>
+                          {stock.currentQuantity}
                         </p>
                       </div>
                     </div>
@@ -780,19 +719,19 @@ if (loading) {
                       <div>
                         <span className="font-medium">Ganancia:</span>
                         <p className="font-bold text-blue-600">
-                          ${(stock.selling_price - stock.buying_price).toFixed(2)}
+                          ${(stock.sellingPrice - stock.buyingPrice).toFixed(2)}
                         </p>
                       </div>
                       <div>
                         <span className="font-medium">% Ganancia:</span>
                         <p className="font-bold text-purple-600">
-                          {(((stock.selling_price - stock.buying_price) / stock.buying_price) * 100).toFixed(1)}%
+                          {(((stock.sellingPrice - stock.buyingPrice) / stock.buyingPrice) * 100).toFixed(1)}%
                         </p>
                       </div>
                       <div>
                         <span className="font-medium">Valor Total:</span>
                         <p className="font-bold text-green-600">
-                          ${(stock.selling_price * stock.current_quantity).toFixed(2)}
+                          ${(stock.sellingPrice * stock.currentQuantity).toFixed(2)}
                         </p>
                       </div>
                     </div>

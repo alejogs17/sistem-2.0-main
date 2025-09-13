@@ -6,6 +6,7 @@ import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SearchFilter } from "@/components/ui/search-filter"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
@@ -18,7 +19,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { supabase, type Customer } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Customer } from "@/types/domain"
+import { CustomersRepository } from "@/lib/repositories/customersRepository"
 import { Plus, Edit, Trash2, Phone, Mail, MapPin, User } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -30,7 +33,7 @@ export default function CustomersPage() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    customer_name: "",
+    customerName: "",
     cedula: "",
     email: "",
     phone: "",
@@ -38,21 +41,18 @@ export default function CustomersPage() {
     status: true,
   })
 
+  const repository = new CustomersRepository(supabase)
+
   useEffect(() => {
     fetchCustomers()
   }, [])
 
   const fetchCustomers = async () => {
-    const { data, error } = await supabase.from("customers").select("*").order("created_at", { ascending: false })
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar los clientes",
-        variant: "destructive",
-      })
-    } else {
-      setCustomers(data || [])
+    try {
+      const list = await repository.list()
+      setCustomers(list)
+    } catch (error) {
+      toast({ title: "Error", description: "No se pudieron cargar los clientes", variant: "destructive" })
     }
   }
 
@@ -60,59 +60,44 @@ export default function CustomersPage() {
     e.preventDefault()
 
     const customerData = {
-      ...formData,
+      customerName: formData.customerName,
+      cedula: formData.cedula || undefined,
+      email: formData.email || undefined,
+      phone: formData.phone || undefined,
+      address: formData.address || undefined,
       status: formData.status ? 1 : 0,
     }
 
-    let error
-    if (editingCustomer) {
-      const { error: updateError } = await supabase.from("customers").update(customerData).eq("id", editingCustomer.id)
-      error = updateError
-    } else {
-      const { error: insertError } = await supabase.from("customers").insert([customerData])
-      error = insertError
-    }
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      })
-    } else {
-      toast({
-        title: "Éxito",
-        description: `Cliente ${editingCustomer ? "actualizado" : "creado"} correctamente`,
-      })
+    try {
+      if (editingCustomer) {
+        await repository.update(editingCustomer.id, customerData)
+      } else {
+        await repository.create(customerData as any)
+      }
+      toast({ title: "Éxito", description: `Cliente ${editingCustomer ? "actualizado" : "creado"} correctamente` })
       setIsDialogOpen(false)
       resetForm()
       fetchCustomers()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || 'No se pudo guardar', variant: "destructive" })
     }
   }
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar este cliente?")) {
-      const { error } = await supabase.from("customers").delete().eq("id", id)
-
-      if (error) {
-        toast({
-          title: "Error",
-          description: "No se pudo eliminar el cliente",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Cliente eliminado correctamente",
-        })
+      try {
+        await repository.remove(id)
+        toast({ title: "Éxito", description: "Cliente eliminado correctamente" })
         fetchCustomers()
+      } catch {
+        toast({ title: "Error", description: "No se pudo eliminar el cliente", variant: "destructive" })
       }
     }
   }
 
   const resetForm = () => {
     setFormData({
-      customer_name: "",
+      customerName: "",
       cedula: "",
       email: "",
       phone: "",
@@ -125,7 +110,7 @@ export default function CustomersPage() {
   const openEditDialog = (customer: Customer) => {
     setEditingCustomer(customer)
     setFormData({
-      customer_name: customer.customer_name,
+      customerName: customer.customerName,
       cedula: customer.cedula || "",
       email: customer.email || "",
       phone: customer.phone || "",
@@ -137,11 +122,12 @@ export default function CustomersPage() {
 
   const filteredCustomers = customers.filter(
     (customer) =>
-      customer.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (customer.phone && customer.phone.includes(searchTerm)) ||
       (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (customer.cedula && customer.cedula.includes(searchTerm)),
   )
+  
 
   return (
     <div className="flex">
@@ -172,8 +158,8 @@ export default function CustomersPage() {
                     <Label htmlFor="customer_name">Nombre *</Label>
                     <Input
                       id="customer_name"
-                      value={formData.customer_name}
-                      onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                      value={formData.customerName}
+                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                       required
                     />
                   </div>
@@ -233,10 +219,9 @@ export default function CustomersPage() {
 
         {/* Barra de búsqueda */}
         <div className="mb-6">
-          <Input
+          <SearchFilter
             placeholder="Buscar clientes por nombre, teléfono, email o cédula..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onFilter={setSearchTerm}
             className="max-w-md"
           />
         </div>
@@ -250,7 +235,7 @@ export default function CustomersPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <User className="w-5 h-5 text-gray-500" />
-                      <h3 className="text-lg font-semibold">{customer.customer_name}</h3>
+                      <h3 className="text-lg font-semibold">{customer.customerName}</h3>
                       <span
                         className={`px-2 py-1 text-xs rounded-full ${
                           customer.status === 1 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"

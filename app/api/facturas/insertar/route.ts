@@ -1,15 +1,27 @@
 import { NextResponse } from 'next/server'
-import { insertarFacturaDian } from '@/lib/facturacion-electronica'
+import { cookies } from 'next/headers'
+import { createSupabaseServer } from '@/lib/supabase-server'
+import { DianClient } from '@/lib/integrations/dianClient'
 
 export async function POST(request: Request) {
   try {
-    const { invoiceData, token } = await request.json()
+    const supabase = createSupabaseServer()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { invoiceData, token: tokenFromBody } = await request.json()
+
+    const tokenCookie = cookies().get('dian_token')?.value
+    const token = tokenCookie ?? tokenFromBody
 
     if (!invoiceData || !token) {
       return NextResponse.json({ error: 'Missing invoice data or token' }, { status: 400 })
     }
 
-    const data = await insertarFacturaDian({ invoiceData, token })
+    const dian = new DianClient()
+    const data = await dian.insertInvoice({ invoiceData, token })
     return NextResponse.json(data)
   } catch (err: any) {
     console.error('API Insert Invoice Error:', err)

@@ -1,11 +1,12 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useRef } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SearchFilter } from "@/components/ui/search-filter"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
@@ -19,7 +20,11 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { supabase, type Sell, type Customer, type Stock, type SellDetail } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Sell, Customer, Stock, SellDetail } from "@/types/domain"
+import { SellsRepository } from "@/lib/repositories/sellsRepository"
+import { CustomersRepository } from "@/lib/repositories/customersRepository"
+import { StocksRepository } from "@/lib/repositories/stocksRepository"
 import { Plus, ShoppingCart, Trash2, Search, Package, Eye, Printer } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Textarea } from "@/components/ui/textarea"
@@ -28,12 +33,12 @@ import { InvoiceTemplate } from "@/components/invoice-template"
 import { useRouter } from "next/navigation"
 
 interface SellItem {
-  stock_id: string
-  product_name: string
+  stockId: string
+  productName: string
   quantity: number
   price: number
   total: number
-  available_stock: number
+  availableStock: number
 }
 
 interface SellWithDetails extends Sell {
@@ -62,15 +67,15 @@ export default function SellsPage() {
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
-    customer_id: "",
-    sell_date: new Date().toISOString().split("T")[0],
-    payment_method: "0",
-    discount_amount: "0",
+    customerId: "",
+    sellDate: new Date().toISOString().split("T")[0],
+    paymentMethod: "0",
+    discountAmount: "0",
   })
 
   const [isNewCustomerDialogOpen, setIsNewCustomerDialogOpen] = useState(false)
   const [newCustomerFormData, setNewCustomerFormData] = useState({
-    customer_name: "",
+    customerName: "",
     cedula: "",
     email: "",
     phone: "",
@@ -78,123 +83,82 @@ export default function SellsPage() {
     status: true,
   })
 
+  // Cargar sesión del usuario en el cliente y reaccionar a cambios
   useEffect(() => {
-    const checkUser = async () => {
+    let mounted = true
+    const init = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (mounted) setSession(session)
+        if (mounted && !session) {
+          // Si no hay sesión en cliente, redirigir al login
           router.replace('/login')
-          return
         }
+      } catch (e) {
+        console.error('Error obteniendo la sesión:', e)
+      }
+    }
+    init()
 
-        setSession(session) // Guardar sesión
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return
+      setSession(session)
+      if (!session) router.replace('/login')
+    })
 
-        // Timeout para las llamadas a la API
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000)
-        )
+    return () => {
+      mounted = false
+      data.subscription.unsubscribe()
+    }
+  }, [router])
 
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000))
         await Promise.race([
-          Promise.all([
-            fetchSells(),
-            fetchCustomers(), 
-            fetchStocks()
-          ]),
+          Promise.all([fetchSells(), fetchCustomers(), fetchStocks()]),
           timeoutPromise
         ])
-
       } catch (error) {
         console.error('Error durante la carga inicial:', error)
-        toast({
-          title: "Error",
-          description: "Hubo un problema al cargar los datos",
-          variant: "destructive",
-        })
-        router.replace('/login')
+        toast({ title: 'Error', description: 'Hubo un problema al cargar los datos', variant: 'destructive' })
       } finally {
         setLoading(false)
       }
     }
-    
-    // Ejecutar checkUser inmediatamente
-    checkUser()
+    load()
+  }, [])
 
-    // Suscribirse a cambios en la sesión
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace('/login')
-      } else {
-        setSession(session)
-      }
-    })
-
-    // Limpiar suscripción
-    return () => subscription.unsubscribe()
-  }, [router])
+  const sellsRepository = new SellsRepository(supabase)
+  const customersRepository = new CustomersRepository(supabase)
+  const stocksRepository = new StocksRepository(supabase)
 
   const fetchSells = async () => {
-    const { data, error } = await supabase
-      .from("sells")
-      .select(`
-        *,
-        customers(customer_name)
-      `)
-      .order("created_at", { ascending: false })
-
-    if (error) {
+    try {
+      const data = await sellsRepository.list()
+      setSells(data)
+    } catch (error) {
       console.error("Error fetching sells:", error)
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar las ventas",
-        variant: "destructive",
-      })
-    } else {
-      setSells(data || [])
+      toast({ title: "Error", description: "No se pudieron cargar las ventas", variant: "destructive" })
     }
   }
 
   const fetchCustomers = async () => {
-    const { data, error } = await supabase.from("customers").select("*").eq("status", 1).order("customer_name")
-    if (error) {
+    try {
+      const data = await customersRepository.listActive()
+      setCustomers(data)
+    } catch (error) {
       console.error("Error fetching customers:", error)
-    } else {
-      setCustomers(data || [])
     }
   }
 
   const fetchStocks = async () => {
     try {
-      const { data: stocksData, error: stocksError } = await supabase
-        .from("stocks")
-        .select("*")
-        .gt("current_quantity", 0)
-        .eq("status", 1)
-        .order("created_at", { ascending: false })
-
-      if (stocksError) {
-        console.error("Error fetching stocks:", stocksError)
-        return
-      }
-
-      // Obtener los productos relacionados
-      const stocksWithProducts = await Promise.all(
-        (stocksData || []).map(async (stock) => {
-          const productResult = await supabase
-            .from("products")
-            .select("product_name")
-            .eq("id", stock.product_id)
-            .single()
-          
-          return {
-            ...stock,
-            products: productResult.data
-          }
-        })
-      )
-
-      setStocks(stocksWithProducts)
+      const data = await stocksRepository.listWithRelations()
+      setStocks(data.filter((s) => (s.currentQuantity ?? 0) > 0 && s.status === 1))
     } catch (error) {
       console.error("Error in fetchStocks:", error)
     }
@@ -202,50 +166,36 @@ export default function SellsPage() {
 
   const fetchSellDetails = async (sellId: number) => {
     try {
-      // Obtener la venta
-      const { data: sellData, error: sellError } = await supabase
-        .from("sells")
-        .select(`
-          *,
-          customers(*)
-        `)
-        .eq("id", sellId)
-        .single()
-
-      if (sellError) throw sellError
-
-      // Obtener los detalles de la venta
-      const { data: detailsData, error: detailsError } = await supabase
-        .from("sell_details")
-        .select(`
-          *,
-          products(product_name)
-        `)
-        .eq("sell_id", sellId)
-
-      if (detailsError) throw detailsError
-
-      const sellWithDetails: SellWithDetails = {
-        ...sellData,
-        details: detailsData || [],
-        customer: sellData.customers,
+      if (!sellId) {
+        throw new Error('ID de venta no válido');
       }
 
-      setSelectedSell(sellWithDetails)
-      setIsDetailDialogOpen(true)
-    } catch (error) {
-      console.error("Error fetching sell details:", error)
+      const data = await sellsRepository.getWithDetails(sellId);
+      if (!data) {
+        throw new Error('No se encontraron datos de la venta');
+      }
+
+      const sellWithDetails: SellWithDetails = {
+        ...data,
+        details: data.details || [],
+        customer: data.customers
+      };
+
+      setSelectedSell(sellWithDetails);
+      setIsDetailDialogOpen(true);
+    } catch (error: unknown) {
+      console.error("Error fetching sell details:", error);
       toast({
         title: "Error",
-        description: "No se pudieron cargar los detalles de la venta",
-        variant: "destructive",
-      })
+        description: error instanceof Error ? error.message : "No se pudieron cargar los detalles de la venta",
+        variant: "destructive"
+      });
     }
   }
 
   const addProductToSale = (stock: Stock) => {
     // Verificar si el producto ya está en la venta
-    const existingItem = selectedItems.find((item) => item.stock_id === stock.id.toString())
+    const existingItem = selectedItems.find((item) => item.stockId === stock.id.toString())
 
     if (existingItem) {
       toast({
@@ -257,18 +207,18 @@ export default function SellsPage() {
     }
 
     const newItem: SellItem = {
-      stock_id: stock.id.toString(),
-      product_name: stock.products?.product_name || "Producto sin nombre",
+      stockId: stock.id.toString(),
+      productName: stock.products?.productName || "Producto sin nombre",
       quantity: 1,
-      price: stock.selling_price,
-      total: stock.selling_price,
-      available_stock: stock.current_quantity,
+      price: stock.sellingPrice,
+      total: stock.sellingPrice,
+      availableStock: stock.currentQuantity,
     }
 
     setSelectedItems([...selectedItems, newItem])
     toast({
       title: "Producto agregado",
-      description: `${newItem.product_name} agregado a la venta`,
+      description: `${newItem.productName} agregado a la venta`,
     })
   }
 
@@ -283,10 +233,10 @@ export default function SellsPage() {
 
     if (field === "quantity") {
       const quantity = Number.parseInt(value) || 1
-      if (quantity > item.available_stock) {
+      if (quantity > item.availableStock) {
         toast({
           title: "Stock insuficiente",
-          description: `Solo hay ${item.available_stock} unidades disponibles`,
+          description: `Solo hay ${item.availableStock} unidades disponibles`,
           variant: "destructive",
         })
         return
@@ -307,14 +257,14 @@ export default function SellsPage() {
 
   const calculateTotal = () => {
     const subtotal = calculateSubtotal()
-    const discount = Number.parseFloat(formData.discount_amount) || 0
+    const discount = Number.parseFloat(formData.discountAmount) || 0
     return Math.max(0, subtotal - discount)
   }
 
   const handleCreateNewCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!newCustomerFormData.customer_name.trim()) {
+    if (!newCustomerFormData.customerName.trim()) {
       toast({
         title: "Error",
         description: "El nombre del cliente es requerido",
@@ -325,7 +275,7 @@ export default function SellsPage() {
 
     try {
       const customerData = {
-        customer_name: newCustomerFormData.customer_name.trim(),
+        customerName: newCustomerFormData.customerName.trim(),
         cedula: newCustomerFormData.cedula.trim() || null,
         email: newCustomerFormData.email.trim() || null,
         phone: newCustomerFormData.phone.trim() || null,
@@ -333,21 +283,7 @@ export default function SellsPage() {
         status: newCustomerFormData.status ? 1 : 0,
       }
 
-      console.log("Creating customer with data:", customerData)
-
-      const { data, error } = await supabase.from("customers").insert([customerData]).select().single()
-
-      if (error) {
-        console.error("Error creating customer:", error)
-        toast({
-          title: "Error",
-          description: `Error al crear cliente: ${error.message}`,
-          variant: "destructive",
-        })
-        return
-      }
-
-      console.log("Customer created successfully:", data)
+      const created = await customersRepository.create(customerData as any)
 
       toast({
         title: "Éxito",
@@ -359,7 +295,7 @@ export default function SellsPage() {
       await fetchCustomers()
 
       // Seleccionar automáticamente el nuevo cliente
-      setFormData({ ...formData, customer_id: data.id.toString() })
+      setFormData({ ...formData, customerId: created.id.toString() })
     } catch (error) {
       console.error("Unexpected error creating customer:", error)
       toast({
@@ -372,7 +308,7 @@ export default function SellsPage() {
 
   const resetNewCustomerForm = () => {
     setNewCustomerFormData({
-      customer_name: "",
+      customerName: "",
       cedula: "",
       email: "",
       phone: "",
@@ -393,7 +329,7 @@ export default function SellsPage() {
       return
     }
 
-    if (!formData.customer_id) {
+    if (!formData.customerId) {
       toast({
         title: "Error",
         description: "Debe seleccionar un cliente",
@@ -407,83 +343,72 @@ export default function SellsPage() {
     try {
       // Crear la venta
       const sellData = {
-        customer_id: Number.parseInt(formData.customer_id),
-        branch_id: 1,
-        total_amount: total,
-        paid_amount: total, // Por ahora asumimos que se paga completo
-        sell_date: formData.sell_date,
-        discount_amount: Number.parseFloat(formData.discount_amount) || 0,
-        payment_method: Number.parseInt(formData.payment_method),
-        payment_status: 1, // Pagado
+        customerId: Number.parseInt(formData.customerId),
+        branchId: 1,
+        totalAmount: total,
+        paidAmount: total,
+        sellDate: formData.sellDate,
+        discountAmount: Number.parseFloat(formData.discountAmount) || 0,
+        paymentMethod: Number.parseInt(formData.paymentMethod),
+        paymentStatus: 1,
       }
 
       console.log("Creating sell with data:", sellData)
 
-      const { data: sellResult, error: sellError } = await supabase.from("sells").insert([sellData]).select().single()
-
-      if (sellError) {
-        console.error("Error creating sell:", sellError)
-        toast({
-          title: "Error",
-          description: `Error al crear la venta: ${sellError.message}`,
-          variant: "destructive",
-        })
-        return
-      }
+      const sellResult = await sellsRepository.create(sellData as any)
 
       console.log("Sell created successfully:", sellResult)
 
       // Insertar detalles de venta y actualizar stock
       for (const item of selectedItems) {
-        const stock = stocks.find((s) => s.id.toString() === item.stock_id)
+        const stock = stocks.find((s) => s.id.toString() === item.stockId)
         if (!stock) continue
 
         // Insertar detalle de venta
         const sellDetailData = {
-          stock_id: Number.parseInt(item.stock_id),
-          sell_id: sellResult.id,
-          product_id: stock.product_id,
-          category_id: stock.category_id,
-          vendor_id: stock.vendor_id,
-          chalan_no: stock.chalan_no || "",
-          selling_date: formData.sell_date,
-          customer_id: formData.customer_id,
-          sold_quantity: item.quantity,
-          buy_price: stock.buying_price,
-          sold_price: item.price,
-          total_buy_price: stock.buying_price * item.quantity,
-          total_sold_price: item.total,
+          stockId: Number.parseInt(item.stockId),
+          sellId: sellResult.id,
+          productId: stock.productId,
+          categoryId: stock.categoryId,
+          vendorId: stock.vendorId,
+          chalanNo: stock.chalanNo || "",
+          sellingDate: formData.sellDate,
+          customerId: formData.customerId,
+          soldQuantity: item.quantity,
+          buyPrice: stock.buyingPrice,
+          soldPrice: item.price,
+          totalBuyPrice: stock.buyingPrice * item.quantity,
+          totalSoldPrice: item.total,
           discount: 0,
-          discount_type: 1,
-          discount_amount: 0,
+          discountType: 1,
+          discountAmount: 0,
         }
 
         console.log("Creating sell detail:", sellDetailData)
 
-        const { error: detailError } = await supabase.from("sell_details").insert([sellDetailData])
-
+        try {
+          await sellsRepository.createDetail(sellDetailData as any)
+        } catch (detailError: any) {
         if (detailError) {
           console.error("Error creating sell detail:", detailError)
           toast({
             title: "Advertencia",
-            description: `Error al guardar detalle para ${item.product_name}: ${detailError.message}`,
+            description: `Error al guardar detalle para ${item.productName}: ${detailError.message}`,
             variant: "destructive",
           })
           continue
         }
+        }
 
         // Actualizar stock
-        const newQuantity = stock.current_quantity - item.quantity
-        const { error: stockError } = await supabase
-          .from("stocks")
-          .update({ current_quantity: newQuantity })
-          .eq("id", stock.id)
-
-        if (stockError) {
+        const newQuantity = stock.currentQuantity - item.quantity
+        try {
+          await stocksRepository.update(stock.id, { currentQuantity: newQuantity } as any)
+        } catch (stockError: any) {
           console.error("Error updating stock:", stockError)
           toast({
             title: "Advertencia",
-            description: `Error al actualizar stock para ${item.product_name}`,
+            description: `Error al actualizar stock para ${item.productName}`,
             variant: "destructive",
           })
         }
@@ -510,10 +435,10 @@ export default function SellsPage() {
 
   const resetForm = () => {
     setFormData({
-      customer_id: "",
-      sell_date: new Date().toISOString().split("T")[0],
-      payment_method: "0",
-      discount_amount: "0",
+      customerId: "",
+      sellDate: new Date().toISOString().split("T")[0],
+      paymentMethod: "0",
+      discountAmount: "0",
     })
     setSelectedItems([])
     setProductSearchTerm("")
@@ -521,46 +446,62 @@ export default function SellsPage() {
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar esta venta?")) {
-      const { error } = await supabase.from("sells").delete().eq("id", id)
-
-      if (error) {
-        toast({
-          title: "Error",
-          description: "No se pudo eliminar la venta",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Venta eliminada correctamente",
-        })
+      try {
+        await sellsRepository.remove(id)
+        toast({ title: "Éxito", description: "Venta eliminada correctamente" })
         fetchSells()
+      } catch (e) {
+        toast({ title: "Error", description: "No se pudo eliminar la venta", variant: "destructive" })
       }
     }
   }
 
-  const handlePrint = () => {
+  const handlePrint = useCallback(() => {
     setIsInvoiceView(true)
     setTimeout(() => {
       if (invoicePrintRef.current) {
-        const printContent = invoicePrintRef.current.innerHTML
-        const originalContent = document.body.innerHTML
-        document.body.innerHTML = printContent
-        window.print()
-        document.body.innerHTML = originalContent
-        window.location.reload()
+        const printWindow = window.open('', '_blank')
+        if (printWindow) {
+          const printContent = invoicePrintRef.current.innerHTML
+          printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <title>Factura</title>
+                <link rel="stylesheet" href="/styles.css">
+                <style>
+                  body { font-family: system-ui, sans-serif; }
+                  .hidden { display: block !important; }
+                </style>
+              </head>
+              <body>
+                ${printContent}
+                <script>
+                  window.onload = () => {
+                    window.print();
+                    window.onafterprint = () => window.close();
+                  }
+                </script>
+              </body>
+            </html>
+          `)
+          printWindow.document.close()
+        }
       }
-    }, 500)
-  }
+      setIsInvoiceView(false)
+    }, 100)
+  }, []);
 
   const filteredSells = sells.filter(
-    (sell) =>
-      sell.customers?.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      sell.id.toString().includes(searchTerm),
+    (sell) => {
+      const customerNameMatch = sell.customers?.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+      const idMatch = sell.id.toString().includes(searchTerm);
+      return customerNameMatch || idMatch;
+    }
   )
 
   const filteredStocks = stocks.filter((stock) =>
-    stock.products?.product_name.toLowerCase().includes(productSearchTerm.toLowerCase()),
+    stock.products?.productName.toLowerCase().includes(productSearchTerm.toLowerCase()),
   )
 
   const formatDate = (dateString: string) => {
@@ -623,8 +564,8 @@ export default function SellsPage() {
                       <Label htmlFor="customer_id">Cliente *</Label>
                       <div className="flex gap-2">
                         <Select
-                          value={formData.customer_id}
-                          onValueChange={(value) => setFormData({ ...formData, customer_id: value })}
+                          value={formData.customerId}
+                          onValueChange={(value) => setFormData({ ...formData, customerId: value })}
                         >
                           <SelectTrigger className="flex-1">
                             <SelectValue placeholder="Seleccionar cliente" />
@@ -632,7 +573,7 @@ export default function SellsPage() {
                           <SelectContent>
                             {customers.map((customer) => (
                               <SelectItem key={customer.id} value={customer.id.toString()}>
-                                {customer.customer_name}
+                                {customer.customerName}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -652,16 +593,16 @@ export default function SellsPage() {
                       <Input
                         id="sell_date"
                         type="date"
-                        value={formData.sell_date}
-                        onChange={(e) => setFormData({ ...formData, sell_date: e.target.value })}
+                        value={formData.sellDate}
+                        onChange={(e) => setFormData({ ...formData, sellDate: e.target.value })}
                         required
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="payment_method">Método de Pago</Label>
                       <Select
-                        value={formData.payment_method}
-                        onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+                        value={formData.paymentMethod}
+                        onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -675,11 +616,11 @@ export default function SellsPage() {
                     </div>
                   </div>
 
-                  {formData.customer_id && (
+                  {formData.customerId && (
                     <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                       <p className="text-green-800">
                         ✅ Cliente seleccionado:{" "}
-                        {customers.find((c) => c.id.toString() === formData.customer_id)?.customer_name}
+                        {customers.find((c) => c.id.toString() === formData.customerId)?.customerName}
                       </p>
                     </div>
                   )}
@@ -691,13 +632,11 @@ export default function SellsPage() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-lg font-semibold">Productos Disponibles</h3>
-                        <div className="flex items-center gap-2">
-                          <Search className="w-4 h-4 text-gray-500" />
-                          <Input
+                        <div className="flex-1 max-w-sm">
+                          <SearchFilter
                             placeholder="Buscar productos..."
-                            value={productSearchTerm}
-                            onChange={(e) => setProductSearchTerm(e.target.value)}
-                            className="w-48"
+                            onFilter={setProductSearchTerm}
+                            className="w-full"
                           />
                         </div>
                       </div>
@@ -713,10 +652,10 @@ export default function SellsPage() {
                               <CardContent className="p-3">
                                 <div className="flex justify-between items-center">
                                   <div className="flex-1">
-                                    <h4 className="font-medium">{stock.products?.product_name}</h4>
+                                    <h4 className="font-medium">{stock.products?.productName}</h4>
                                     <div className="flex gap-4 text-sm text-gray-600">
-                                      <span>Stock: {stock.current_quantity}</span>
-                                      <span>Precio: ${stock.selling_price}</span>
+                                      <span>Stock: {stock.currentQuantity}</span>
+                                      <span>Precio: ${stock.sellingPrice}</span>
                                     </div>
                                   </div>
                                   <Button size="sm" variant="outline">
@@ -747,7 +686,7 @@ export default function SellsPage() {
                               <CardContent className="p-3">
                                 <div className="space-y-3">
                                   <div className="flex justify-between items-start">
-                                    <h4 className="font-medium">{item.product_name}</h4>
+                                    <h4 className="font-medium">{item.productName}</h4>
                                     <Button size="sm" variant="outline" onClick={() => removeItemFromSale(index)}>
                                       <Trash2 className="w-4 h-4" />
                                     </Button>
@@ -759,7 +698,7 @@ export default function SellsPage() {
                                       <Input
                                         type="number"
                                         min="1"
-                                        max={item.available_stock}
+                                        max={item.availableStock}
                                         value={item.quantity}
                                         onChange={(e) => updateItem(index, "quantity", e.target.value)}
                                         className="h-8"
@@ -782,7 +721,7 @@ export default function SellsPage() {
                                   </div>
 
                                   <p className="text-xs text-gray-500">
-                                    Stock disponible: {item.available_stock} unidades
+                                    Stock disponible: {item.availableStock} unidades
                                   </p>
                                 </div>
                               </CardContent>
@@ -812,20 +751,20 @@ export default function SellsPage() {
                             <div>
                               <span className="font-medium">Cliente:</span>
                               <p>
-                                {customers.find((c) => c.id.toString() === formData.customer_id)?.customer_name ||
+                                {customers.find((c) => c.id.toString() === formData.customerId)?.customerName ||
                                   "No seleccionado"}
                               </p>
                             </div>
                             <div>
                               <span className="font-medium">Fecha:</span>
-                              <p>{formData.sell_date}</p>
+                              <p>{formData.sellDate}</p>
                             </div>
                             <div>
                               <span className="font-medium">Método de Pago:</span>
                               <p>
-                                {formData.payment_method === "0" && "Efectivo"}
-                                {formData.payment_method === "1" && "Tarjeta"}
-                                {formData.payment_method === "2" && "Transferencia"}
+                                {formData.paymentMethod === "0" && "Efectivo"}
+                                {formData.paymentMethod === "1" && "Tarjeta"}
+                                {formData.paymentMethod === "2" && "Transferencia"}
                               </p>
                             </div>
                           </div>
@@ -840,7 +779,7 @@ export default function SellsPage() {
                             {selectedItems.map((item, index) => (
                               <div key={index} className="flex justify-between items-center py-2 border-b">
                                 <div>
-                                  <span className="font-medium">{item.product_name}</span>
+                                    <span className="font-medium">{item.productName}</span>
                                   <span className="text-sm text-gray-500 ml-2">
                                     {item.quantity} x ${item.price}
                                   </span>
@@ -865,8 +804,8 @@ export default function SellsPage() {
                                   step="0.01"
                                   min="0"
                                   max={calculateSubtotal()}
-                                  value={formData.discount_amount}
-                                  onChange={(e) => setFormData({ ...formData, discount_amount: e.target.value })}
+                                  value={formData.discountAmount}
+                                  onChange={(e) => setFormData({ ...formData, discountAmount: e.target.value })}
                                   placeholder="0.00"
                                 />
                               </div>
@@ -879,7 +818,7 @@ export default function SellsPage() {
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Descuento:</span>
-                                    <span>-${(Number.parseFloat(formData.discount_amount) || 0).toFixed(2)}</span>
+                                    <span>-${(Number.parseFloat(formData.discountAmount) || 0).toFixed(2)}</span>
                                   </div>
                                   <div className="flex justify-between font-bold text-lg border-t pt-1">
                                     <span>Total:</span>
@@ -897,7 +836,7 @@ export default function SellsPage() {
                       <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                         Cancelar
                       </Button>
-                      <Button type="submit" disabled={!formData.customer_id || selectedItems.length === 0}>
+                      <Button type="submit" disabled={!formData.customerId || selectedItems.length === 0}>
                         Registrar Venta
                       </Button>
                     </DialogFooter>
@@ -920,9 +859,9 @@ export default function SellsPage() {
                     <Label htmlFor="new_customer_name">Nombre *</Label>
                     <Input
                       id="new_customer_name"
-                      value={newCustomerFormData.customer_name}
+                      value={newCustomerFormData.customerName}
                       onChange={(e) =>
-                        setNewCustomerFormData({ ...newCustomerFormData, customer_name: e.target.value })
+                        setNewCustomerFormData({ ...newCustomerFormData, customerName: e.target.value })
                       }
                       required
                       placeholder="Nombre completo del cliente"
@@ -995,10 +934,9 @@ export default function SellsPage() {
 
         {/* Barra de búsqueda */}
         <div className="mb-6">
-          <Input
+          <SearchFilter
             placeholder="Buscar ventas por cliente o ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onFilter={setSearchTerm}
             className="max-w-md"
           />
         </div>
@@ -1013,29 +951,29 @@ export default function SellsPage() {
                     <div className="flex items-center gap-2 mb-2">
                       <ShoppingCart className="w-5 h-5 text-gray-500" />
                       <h3 className="text-lg font-semibold">Venta #{sell.id}</h3>
-                      <Badge variant={sell.payment_status === 1 ? "default" : "destructive"}>
-                        {sell.payment_status === 1 ? "Pagado" : "Pendiente"}
+                      <Badge variant={sell.paymentStatus === 1 ? "default" : "destructive"}>
+                        {sell.paymentStatus === 1 ? "Pagado" : "Pendiente"}
                       </Badge>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="font-medium">Cliente:</span>
-                        <p>{sell.customers?.customer_name}</p>
+                        <p>{sell.customers?.customerName}</p>
                       </div>
                       <div>
                         <span className="font-medium">Total:</span>
-                        <p className="font-bold text-green-600">${sell.total_amount.toFixed(2)}</p>
+                        <p className="font-bold text-green-600">${sell.totalAmount.toFixed(2)}</p>
                       </div>
                       <div>
                         <span className="font-medium">Fecha:</span>
-                        <p>{new Date(sell.created_at).toLocaleDateString()}</p>
+                        <p>{sell.sellDate ? new Date(sell.sellDate).toLocaleDateString() : new Date(sell.createdAt).toLocaleDateString()}</p>
                       </div>
                       <div>
                         <span className="font-medium">Método:</span>
                         <p>
-                          {sell.payment_method === 0 && "Efectivo"}
-                          {sell.payment_method === 1 && "Tarjeta"}
-                          {sell.payment_method === 2 && "Transferencia"}
+                          {sell.paymentMethod === 0 && "Efectivo"}
+                          {sell.paymentMethod === 1 && "Tarjeta"}
+                          {sell.paymentMethod === 2 && "Transferencia"}
                         </p>
                       </div>
                     </div>
@@ -1081,7 +1019,7 @@ export default function SellsPage() {
                       <div className="space-y-2 text-sm">
                         <div>
                           <span className="font-medium">Nombre:</span>
-                          <p>{selectedSell.customer?.customer_name}</p>
+                          <p>{selectedSell.customer?.customerName}</p>
                         </div>
                         {selectedSell.customer?.cedula && (
                           <div>
@@ -1111,20 +1049,20 @@ export default function SellsPage() {
                       <div className="space-y-2 text-sm">
                         <div>
                           <span className="font-medium">Fecha:</span>
-                          <p>{selectedSell.sell_date || formatDate(selectedSell.created_at)}</p>
+                          <p>{selectedSell.sellDate || formatDate(selectedSell.createdAt)}</p>
                         </div>
                         <div>
                           <span className="font-medium">Método de Pago:</span>
                           <p>
-                            {selectedSell.payment_method === 0 && "Efectivo"}
-                            {selectedSell.payment_method === 1 && "Tarjeta"}
-                            {selectedSell.payment_method === 2 && "Transferencia"}
+                            {selectedSell.paymentMethod === 0 && "Efectivo"}
+                            {selectedSell.paymentMethod === 1 && "Tarjeta"}
+                            {selectedSell.paymentMethod === 2 && "Transferencia"}
                           </p>
                         </div>
                         <div>
                           <span className="font-medium">Estado:</span>
-                          <Badge variant={selectedSell.payment_status === 1 ? "default" : "destructive"}>
-                            {selectedSell.payment_status === 1 ? "Pagado" : "Pendiente"}
+                          <Badge variant={selectedSell.paymentStatus === 1 ? "default" : "destructive"}>
+                            {selectedSell.paymentStatus === 1 ? "Pagado" : "Pendiente"}
                           </Badge>
                         </div>
                       </div>
@@ -1150,10 +1088,10 @@ export default function SellsPage() {
                           {selectedSell.details && selectedSell.details.length > 0 ? (
                             selectedSell.details.map((detail, index) => (
                               <tr key={index} className="border-b">
-                                <td className="py-2">{detail.products?.product_name || "Producto desconocido"}</td>
-                                <td className="text-right py-2">{detail.sold_quantity}</td>
-                                <td className="text-right py-2">${detail.sold_price.toFixed(2)}</td>
-                                <td className="text-right py-2">${detail.total_sold_price.toFixed(2)}</td>
+                                <td className="py-2">{detail.stock?.product?.productName || "Producto desconocido"}</td>
+                                <td className="text-right py-2">{detail.soldQuantity}</td>
+                                <td className="text-right py-2">${detail.soldPrice.toFixed(2)}</td>
+                                <td className="text-right py-2">${detail.totalSoldPrice.toFixed(2)}</td>
                               </tr>
                             ))
                           ) : (
@@ -1165,23 +1103,23 @@ export default function SellsPage() {
                           )}
                         </tbody>
                         <tfoot>
-                          {selectedSell.discount_amount > 0 && (
+                          {((selectedSell as any).discount_amount ?? (selectedSell as any).discountAmount) > 0 && (
                             <tr>
                               <td colSpan={3} className="text-right py-2 font-medium">
                                 Subtotal:
                               </td>
                               <td className="text-right py-2 font-medium">
-                                ${(selectedSell.total_amount + selectedSell.discount_amount).toFixed(2)}
+                                ${(selectedSell.totalAmount + selectedSell.discountAmount).toFixed(2)}
                               </td>
                             </tr>
                           )}
-                          {selectedSell.discount_amount > 0 && (
+                          {((selectedSell as any).discount_amount ?? (selectedSell as any).discountAmount) > 0 && (
                             <tr>
                               <td colSpan={3} className="text-right py-2 font-medium">
                                 Descuento:
                               </td>
                               <td className="text-right py-2 font-medium">
-                                -${selectedSell.discount_amount.toFixed(2)}
+                                -${(((selectedSell as any).discount_amount ?? (selectedSell as any).discountAmount)).toFixed(2)}
                               </td>
                             </tr>
                           )}
@@ -1189,7 +1127,7 @@ export default function SellsPage() {
                             <td colSpan={3} className="text-right py-2 font-bold">
                               Total:
                             </td>
-                            <td className="text-right py-2 font-bold">${selectedSell.total_amount.toFixed(2)}</td>
+                            <td className="text-right py-2 font-bold">${selectedSell.totalAmount.toFixed(2)}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -1198,12 +1136,12 @@ export default function SellsPage() {
                 </Card>
 
                 {/* Vista de impresión */}
-                {isInvoiceView && selectedSell.customer && (
+                {isInvoiceView && selectedSell.customers && (
                   <div ref={invoicePrintRef} className="hidden">
                     <InvoiceTemplate
                       sell={selectedSell}
                       details={selectedSell.details || []}
-                      customer={selectedSell.customer}
+                      customer={selectedSell.customers}
                     />
                   </div>
                 )}

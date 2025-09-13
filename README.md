@@ -181,6 +181,31 @@ curl -s -X POST http://localhost:3000/api/facturas/estado \
 - Registrar respuestas/errores con IDs de correlación para trazabilidad.
 - Actualizar a Node 20+ (recomendación de `@supabase/supabase-js`).
 
+**Seguridad Aplicada**
+- Middleware de autenticación (SSR con Supabase) que protege páginas y APIs.
+- Token DIAN almacenado en cookie HttpOnly (`dian_token`) con `SameSite=Strict` y `Secure`.
+- Rate limiting en `/api/**` (60 req/min por usuario o IP). Configurar variables de Upstash:
+  - `UPSTASH_REDIS_REST_URL`
+  - `UPSTASH_REDIS_REST_TOKEN`
+- Cabeceras de seguridad: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP.
+- RLS: archivo `docs/sql/rls_policies.sql` con políticas iniciales por tabla (ajusta según tu modelo multi-tenant).
+
+**RLS (Supabase)**
+- Ejecuta `docs/sql/rls_policies.sql` en tu proyecto de Supabase (SQL Editor) para habilitar RLS y políticas base.
+- Si usas `user_id` en `stocks`, `sells`, `sell_details`, las políticas restringen por usuario. Si no, cambia `USING/CHECK` a `(true)` para permitir a cualquier usuario autenticado.
+
+**Multi‑tenant (user_id) y migraciones**
+- Ejecuta `docs/sql/2025-09-13-multi_tenant_user_id.sql` para añadir la columna `user_id` con `DEFAULT auth.uid()` en `stocks`, `sells` y `sell_details`.
+- Opcional: descomenta y reemplaza el UUID en el script para backfill de filas existentes.
+- Tras esto, mantén las políticas RLS restrictivas (recomendado) y la app asignará automáticamente `user_id` en inserts vía `DEFAULT auth.uid()`.
+
+**Rate limiting**
+- Configura Upstash en variables de entorno para activar el limitador (60 req/min):
+  - `UPSTASH_REDIS_REST_URL`
+  - `UPSTASH_REDIS_REST_TOKEN`
+- Prueba con `GET /api/health` (autenticado o no). Al exceder el límite, devolverá 429.
+
+
 ---
 
 **Higiene para Deploy**

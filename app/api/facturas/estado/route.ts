@@ -1,15 +1,27 @@
 import { NextResponse } from 'next/server'
-import { consultarEstadoDocumentoDian } from '@/lib/facturacion-electronica'
+import { cookies } from 'next/headers'
+import { createSupabaseServer } from '@/lib/supabase-server'
+import { DianClient } from '@/lib/integrations/dianClient'
 
 export async function POST(request: Request) {
   try {
-    const { documentId, token, documentType } = await request.json()
+    const supabase = createSupabaseServer()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { documentId, token: tokenFromBody, documentType } = await request.json()
+
+    const tokenCookie = cookies().get('dian_token')?.value
+    const token = tokenCookie ?? tokenFromBody
 
     if (!documentId || !token) {
       return NextResponse.json({ error: 'Missing document ID or token' }, { status: 400 })
     }
 
-    const data = await consultarEstadoDocumentoDian({ documentId, token, documentType })
+    const dian = new DianClient()
+    const data = await dian.getDocumentStatus({ documentId, token, documentType })
     return NextResponse.json(data)
   } catch (err: any) {
     console.error('API Get Document Status Error:', err)

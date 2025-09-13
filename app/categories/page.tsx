@@ -6,6 +6,7 @@ import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { SearchFilter } from "@/components/ui/search-filter"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -17,14 +18,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { supabase, type Category } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import type { Category } from "@/types/domain"
+import { CategoriesRepository } from "@/lib/repositories/categoriesRepository"
 import { Plus, Edit, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function CategoriesPage() {
   const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
@@ -37,66 +38,20 @@ export default function CategoriesPage() {
   })
 
   useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          router.replace('/login')
-          return
-        }
-
-        setSession(session)
-
-        // Timeout para la llamada a la API
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000)
-        )
-
-        await Promise.race([
-          fetchCategories(),
-          timeoutPromise
-        ])
-
-      } catch (error) {
-        console.error('Error durante la carga inicial:', error)
-        toast({
-          title: "Error",
-          description: "Hubo un problema al cargar los datos",
-          variant: "destructive",
-        })
-        router.replace('/login')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    checkUser()
-
-    // Suscripción a cambios en la sesión
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace('/login')
-      } else {
-        setSession(session)
-      }
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), 10000))
+    Promise.race([fetchCategories(), timeoutPromise]).catch(() => {
+      toast({ title: 'Error', description: 'Hubo un problema al cargar los datos', variant: 'destructive' })
     })
+  }, [])
 
-    return () => subscription.unsubscribe()
-  }, [router])
+  const categoriesRepository = new CategoriesRepository(supabase)
 
   const fetchCategories = async () => {
-    const { data, error } = await supabase.from("categories").select("*").order("created_at", { ascending: false })
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar las categorías",
-        variant: "destructive",
-      })
-    } else {
-      setCategories(data || [])
+    try {
+      const list = await categoriesRepository.list()
+      setCategories(list)
+    } catch (error) {
+      toast({ title: "Error", description: "No se pudieron cargar las categorías", variant: "destructive" })
     }
   }
 
@@ -108,48 +63,29 @@ export default function CategoriesPage() {
       status: formData.status ? 1 : 0,
     }
 
-    let error
-    if (editingCategory) {
-      const { error: updateError } = await supabase.from("categories").update(categoryData).eq("id", editingCategory.id)
-      error = updateError
-    } else {
-      const { error: insertError } = await supabase.from("categories").insert([categoryData])
-      error = insertError
-    }
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      })
-    } else {
-      toast({
-        title: "Éxito",
-        description: `Categoría ${editingCategory ? "actualizada" : "creada"} correctamente`,
-      })
+    try {
+      if (editingCategory) {
+        await categoriesRepository.update(editingCategory.id, categoryData)
+      } else {
+        await categoriesRepository.create(categoryData)
+      }
+      toast({ title: "Éxito", description: `Categoría ${editingCategory ? "actualizada" : "creada"} correctamente` })
       setIsDialogOpen(false)
       resetForm()
       fetchCategories()
+    } catch (e: any) {
+      toast({ title: "Error", description: e?.message || 'No se pudo guardar', variant: "destructive" })
     }
   }
 
   const handleDelete = async (id: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar esta categoría?")) {
-      const { error } = await supabase.from("categories").delete().eq("id", id)
-
-      if (error) {
-        toast({
-          title: "Error",
-          description: "No se pudo eliminar la categoría",
-          variant: "destructive",
-        })
-      } else {
-        toast({
-          title: "Éxito",
-          description: "Categoría eliminada correctamente",
-        })
+      try {
+        await categoriesRepository.remove(id)
+        toast({ title: "Éxito", description: "Categoría eliminada correctamente" })
         fetchCategories()
+      } catch {
+        toast({ title: "Error", description: "No se pudo eliminar la categoría", variant: "destructive" })
       }
     }
   }
@@ -176,20 +112,7 @@ export default function CategoriesPage() {
   )
 
   // Agregar el componente de carga
-  if (!session || loading) {
-    return (
-      <div className="flex min-h-screen bg-gray-100">
-        <Navigation />
-        <main className="flex-1 p-8">
-          <div className="flex flex-col items-center justify-center h-[80vh] space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            <h2 className="text-xl font-semibold text-gray-700">Verificando acceso...</h2>
-            <p className="text-gray-500">Por favor espera mientras verificamos tu sesión</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
+  
 
   return (
     <div className="flex">
@@ -249,10 +172,9 @@ export default function CategoriesPage() {
 
         {/* Barra de búsqueda */}
         <div className="mb-6">
-          <Input
+          <SearchFilter
             placeholder="Buscar categorías..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onFilter={setSearchTerm}
             className="max-w-md"
           />
         </div>
@@ -267,7 +189,7 @@ export default function CategoriesPage() {
                     <h3 className="text-lg font-semibold">{category.name}</h3>
                     <p className="text-sm text-gray-600">Estado: {category.status === 1 ? "Activa" : "Inactiva"}</p>
                     <p className="text-sm text-gray-500">
-                      Creada: {new Date(category.created_at).toLocaleDateString()}
+                      Creada: {new Date(category.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   <div className="flex gap-2">

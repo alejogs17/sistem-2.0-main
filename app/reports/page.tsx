@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
+import { toCamelCaseKeys } from "@/lib/utils/case"
 import { BarChart3, TrendingUp, Package, DollarSign, Users, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -16,8 +17,6 @@ export default function ReportsPage() {
   // 1. Todos los useState deben ir al inicio
   const router = useRouter()
   const { toast } = useToast()
-  const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [reportData, setReportData] = useState<any>({})
   const [reportType, setReportType] = useState("sales")
@@ -27,41 +26,8 @@ export default function ReportsPage() {
   // 2. Todos los useEffect deben ir después de los useState
   // UseEffect para verificación de sesión
   useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) {
-          router.replace('/login')
-          return
-        }
-        setSession(session)
-        setLoading(false)
-      } catch (error) {
-        console.error('Error durante la carga inicial:', error)
-        toast({
-          title: "Error",
-          description: "Hubo un problema al verificar tu sesión",
-          variant: "destructive",
-        })
-        router.replace('/login')
-      }
-    }
-
-    checkUser()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace('/login')
-      } else {
-        setSession(session)
-        setLoading(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, [router])
+    // Middleware ya garantiza sesión; no verificamos aquí para acelerar.
+  }, [])
 
   // UseEffect para recuperar filtros guardados
   useEffect(() => {
@@ -85,20 +51,7 @@ export default function ReportsPage() {
 
   // 3. Resto del código (funciones, renderizado, etc.)
   // Asegúrate de que la verificación de loading sea correcta
-  if (loading) {
-    return (
-      <div className="flex min-h-screen bg-gray-100">
-        <Navigation />
-        <main className="flex-1 p-8">
-          <div className="flex flex-col items-center justify-center h-[80vh] space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            <h2 className="text-xl font-semibold text-gray-700">Verificando acceso...</h2>
-            <p className="text-gray-500">Por favor espera mientras verificamos tu sesión</p>
-          </div>
-        </main>
-      </div>
-    )
-  }
+  
 
   const validateDates = () => {
     const fromDate = new Date(dateFrom)
@@ -181,17 +134,17 @@ export default function ReportsPage() {
       )
 
       // Ejecutar la promesa con timeout
-      const data = await Promise.race([
+      const raw = await Promise.race([
         reportPromise(),
         timeoutPromise
       ])
 
       // Verificar si hay datos
-      if (Object.keys(data).length === 0) {
+      if (Object.keys(raw as any).length === 0) {
         throw new Error('No se obtuvieron datos del reporte')
       }
 
-      setReportData(data)
+      setReportData(toCamelCaseKeys(raw))
       
       toast({
         title: "Éxito",
@@ -425,11 +378,11 @@ export default function ReportsPage() {
                       reportData.lowStockItems.slice(0, 10).map((item: any, index: number) => (
                         <div key={index} className="flex justify-between items-center">
                           <div>
-                            <p className="font-medium">{item.products?.product_name}</p>
-                            <p className="text-sm text-gray-500">Código: {item.product_code}</p>
+                            <p className="font-medium">{item.products?.productName}</p>
+                            <p className="text-sm text-gray-500">Código: {item.productCode}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold text-red-600">{item.current_quantity} unidades</p>
+                            <p className="font-bold text-red-600">{item.currentQuantity} unidades</p>
                           </div>
                         </div>
                       ))

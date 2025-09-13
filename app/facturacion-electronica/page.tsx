@@ -16,7 +16,7 @@ export default function FacturacionElectronicaPage() {
   const { toast } = useToast()
 
   const [sessionChecked, setSessionChecked] = useState(false)
-  const [token, setToken] = useState<string | null>(null)
+  const [hasToken, setHasToken] = useState(false)
   const [loadingToken, setLoadingToken] = useState(false)
 
   const [invoiceJson, setInvoiceJson] = useState<string>("")
@@ -28,18 +28,8 @@ export default function FacturacionElectronicaPage() {
   const [statusResult, setStatusResult] = useState<any>(null)
 
   useEffect(() => {
-    const check = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.replace('/login')
-        return
-      }
-      setSessionChecked(true)
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('dian_token') : null
-      if (stored) setToken(stored)
-    }
-    check()
-  }, [router])
+    setSessionChecked(true)
+  }, [])
 
   const dummyInvoice = useMemo(() => ({
     InvoiceGeneralInformation: {
@@ -94,9 +84,7 @@ export default function FacturacionElectronicaPage() {
       const res = await fetch('/api/autenticacion/iniciar-sesion', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'No se pudo obtener token')
-      const tk = data?.token ?? null
-      setToken(tk)
-      if (tk) localStorage.setItem('dian_token', tk)
+      setHasToken(true)
       toast({ title: 'Éxito', description: 'Token obtenido correctamente' })
     } catch (e: any) {
       toast({ title: 'Error', description: e.message, variant: 'destructive' })
@@ -106,10 +94,6 @@ export default function FacturacionElectronicaPage() {
   }
 
   const enviarFactura = async () => {
-    if (!token) {
-      toast({ title: 'Falta token', description: 'Obtén el token primero', variant: 'destructive' })
-      return
-    }
     setSending(true)
     try {
       let payload: any
@@ -121,7 +105,7 @@ export default function FacturacionElectronicaPage() {
       const res = await fetch('/api/facturas/insertar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceData: payload, token }),
+        body: JSON.stringify({ invoiceData: payload }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'No se pudo enviar la factura')
@@ -138,8 +122,8 @@ export default function FacturacionElectronicaPage() {
   }
 
   const consultarEstado = async () => {
-    if (!token || !documentId) {
-      toast({ title: 'Datos incompletos', description: 'Token y Document ID son requeridos', variant: 'destructive' })
+    if (!documentId) {
+      toast({ title: 'Datos incompletos', description: 'Document ID es requerido', variant: 'destructive' })
       return
     }
     setChecking(true)
@@ -147,7 +131,7 @@ export default function FacturacionElectronicaPage() {
       const res = await fetch('/api/facturas/estado', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentId, token }),
+        body: JSON.stringify({ documentId }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'No se pudo consultar estado')
@@ -192,7 +176,7 @@ export default function FacturacionElectronicaPage() {
               <Button onClick={obtenerToken} disabled={loadingToken}>
                 {loadingToken ? 'Obteniendo...' : 'Obtener Token'}
               </Button>
-              <Input readOnly value={token ?? ''} placeholder="Token" className="flex-1" />
+              <Input readOnly value={hasToken ? 'Sesión activa' : ''} placeholder="Token (no visible)" className="flex-1" />
             </div>
           </CardContent>
         </Card>
@@ -206,7 +190,7 @@ export default function FacturacionElectronicaPage() {
               <Label>JSON de la factura</Label>
               <Textarea rows={12} value={invoiceJson} onChange={(e) => setInvoiceJson(e.target.value)} />
             </div>
-            <Button onClick={enviarFactura} disabled={sending || !token}>
+            <Button onClick={enviarFactura} disabled={sending || !hasToken}>
               {sending ? 'Enviando...' : 'Enviar Factura de Prueba'}
             </Button>
             {sendResult && (
@@ -225,7 +209,7 @@ export default function FacturacionElectronicaPage() {
                 <Label htmlFor="docId">Document ID</Label>
                 <Input id="docId" value={documentId} onChange={(e) => setDocumentId(e.target.value)} placeholder="ID devuelto por la API" />
               </div>
-              <Button onClick={consultarEstado} disabled={checking || !token || !documentId}>
+              <Button onClick={consultarEstado} disabled={checking || !hasToken || !documentId}>
                 {checking ? 'Consultando...' : 'Consultar Estado'}
               </Button>
             </div>
@@ -238,4 +222,3 @@ export default function FacturacionElectronicaPage() {
     </div>
   )
 }
-

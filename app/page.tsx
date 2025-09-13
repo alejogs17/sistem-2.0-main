@@ -1,12 +1,12 @@
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase"
 import { Package, AlertTriangle, DollarSign, Users } from "lucide-react"
 import { redirect } from "next/navigation"
 import { createServerClient } from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-async function getDashboardData() {
+async function getDashboardData(s: SupabaseClient<any, any, any>) {
   const [
     { count: totalProducts },
     { count: totalCategories },
@@ -16,12 +16,12 @@ async function getDashboardData() {
     { data: recentSells },
     { data: stockData },
   ] = await Promise.all([
-    supabase.from("products").select("*", { count: "exact", head: true }),
-    supabase.from("categories").select("*", { count: "exact", head: true }),
-    supabase.from("customers").select("*", { count: "exact", head: true }),
-    supabase.from("vendors").select("*", { count: "exact", head: true }),
-    supabase.from("stocks").select("*", { count: "exact", head: true }).lt("current_quantity", 10),
-    supabase
+    s.from("products").select("*", { count: "exact", head: true }),
+    s.from("categories").select("*", { count: "exact", head: true }),
+    s.from("customers").select("*", { count: "exact", head: true }),
+    s.from("vendors").select("*", { count: "exact", head: true }),
+    s.from("stocks").select("*", { count: "exact", head: true }).lt("current_quantity", 10),
+    s
       .from("sells")
       .select(`
         *,
@@ -29,7 +29,7 @@ async function getDashboardData() {
       `)
       .order("created_at", { ascending: false })
       .limit(5),
-    supabase.from("stocks").select("selling_price, current_quantity"),
+    s.from("stocks").select("selling_price, current_quantity"),
   ])
 
   const inventoryValue = stockData?.reduce((sum, stock) => sum + stock.selling_price * stock.current_quantity, 0) || 0
@@ -48,7 +48,7 @@ async function getDashboardData() {
 export default async function Dashboard() {
   const cookieStore = await cookies()
   
-  const supabase = createServerClient(
+  const sb = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -71,7 +71,7 @@ export default async function Dashboard() {
     }
   )
   
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { session } } = await sb.auth.getSession()
   if (!session) {
     redirect("/login")
   }
@@ -84,7 +84,7 @@ export default async function Dashboard() {
     lowStockProducts,
     recentSells,
     inventoryValue,
-  } = await getDashboardData()
+  } = await getDashboardData(sb)
 
   return (
     <div className="flex">
